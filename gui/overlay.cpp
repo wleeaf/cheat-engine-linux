@@ -10,6 +10,7 @@ namespace ce::gui {
 
 OverlayWindow::OverlayWindow(QWidget* parent) : QWidget(parent) {
     setWindowTitle(tr("CE Overlay"));
+    statusText_ = tr("No process");
     setWindowFlags(Qt::Tool | Qt::FramelessWindowHint |
         Qt::WindowStaysOnTopHint | Qt::BypassWindowManagerHint |
         Qt::WindowTransparentForInput);

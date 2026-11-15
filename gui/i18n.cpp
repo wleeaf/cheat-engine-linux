@@ -46,6 +46,22 @@ QString configuredUiLanguage() {
 }
 
 QString installTranslators(QApplication& app, const QString& explicitLocale) {
+    // A few Qt 6.11 stock-dialog sources are newer than the translation packages
+    // ship: the file dialog now passes mnemonics ("&Look in:", "Files of &type:")
+    // and the icon provider names the file kinds ("Drive", "Folder"). Marking the
+    // newer sources here puts them in our catalogue, and the application translator
+    // is installed last, so these stock labels are answered before Qt's own .qm.
+    (void)QT_TRANSLATE_NOOP("QFileDialog", "&Look in:");
+    (void)QT_TRANSLATE_NOOP("QFileDialog", "Files of &type:");
+    (void)QT_TRANSLATE_NOOP("QAbstractFileIconProvider", "Drive");
+    struct StockWithComment { const char* text; const char* comment; };
+    const StockWithComment kQtStockWithComment[] = {
+        QT_TRANSLATE_NOOP3("QAbstractFileIconProvider", "Folder", "All other platforms"),
+        QT_TRANSLATE_NOOP3("QFileSystemModel", "Type", "All other platforms"),
+        QT_TRANSLATE_NOOP3("QFontDatabase", "Normal", "The Normal or Regular font weight"),
+    };
+    (void)kQtStockWithComment;
+
     // Number and date formatting keeps following the desktop locale, as before;
     // only the interface language changes when Settings picks one.
     const QLocale desktopLocale(desktopLocaleName());

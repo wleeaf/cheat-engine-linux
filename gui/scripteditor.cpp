@@ -146,6 +146,7 @@ private:
 
 ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget* parent)
     : QMainWindow(parent), proc_(proc), autoAsm_(autoAsm) {
+    defaultDescription_ = tr("Auto Assembler script");
 
     setWindowTitle(tr("Auto Assembler"));
     resize(860, 600);   // wide enough for the whole toolbar, Templates included

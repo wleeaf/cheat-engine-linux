@@ -95,6 +95,9 @@
 namespace ce::gui {
 using namespace mainwindow_detail;
 
+// Defined with the Type-column helpers near the end of the file; data() needs it.
+static QString valueTypeLabel(ce::ValueType t);
+
 // ═══════════════════════════════════════════════════════════════
 // AddressListModel
 // ═══════════════════════════════════════════════════════════════
@@ -1175,7 +1178,7 @@ QVariant AddressListModel::data(const QModelIndex& index, int role) const {
                 ? QString("0x%1").arg(e.address, 0, 16) : e.addressExpr;
         // The type editor starts from the record's type: an empty editor
         // committed by clicking away changed every record to 4 Bytes.
-        if (index.column() == 3) return QString(ce::valueTypeName(e.type));
+        if (index.column() == 3) return valueTypeLabel(e.type);
         if (index.column() == 4) return e.currentValue;
         return {};
     }
@@ -1205,7 +1208,7 @@ QVariant AddressListModel::data(const QModelIndex& index, int role) const {
             if (e.isGroup) return "";
             // CE-canonical name; String/Array records also show their element length
             // in brackets (e.g. "String[10]", "Array of byte[8]"), like Cheat Engine.
-            QString name = ce::valueTypeName(e.type);
+            QString name = valueTypeLabel(e.type);
             if ((e.type == ValueType::String || e.type == ValueType::UnicodeString ||
                  e.type == ValueType::ByteArray) && e.byteCount > 0)
                 name += QString("[%1]").arg(e.byteCount);
@@ -1369,18 +1372,42 @@ void AddressListModel::groupSelectedRows(const QList<int>& rows, const QString& 
     endResetModel();
 }
 
+// Localized name of the Type column. The canonical English ce::valueTypeName() stays
+// the format used by cheat tables, Lua and the CLI; only the table and its editor
+// show this translation.
+static QString valueTypeLabel(ce::ValueType t) {
+    switch (t) {
+        case ValueType::Byte:          return QCoreApplication::translate("ce::gui::AddressListModel", "Byte");
+        case ValueType::Int16:         return QCoreApplication::translate("ce::gui::AddressListModel", "2 Bytes");
+        case ValueType::Int32:         return QCoreApplication::translate("ce::gui::AddressListModel", "4 Bytes");
+        case ValueType::Int64:         return QCoreApplication::translate("ce::gui::AddressListModel", "8 Bytes");
+        case ValueType::Float:         return QCoreApplication::translate("ce::gui::AddressListModel", "Float");
+        case ValueType::Double:        return QCoreApplication::translate("ce::gui::AddressListModel", "Double");
+        case ValueType::String:        return QCoreApplication::translate("ce::gui::AddressListModel", "String");
+        case ValueType::UnicodeString: return QCoreApplication::translate("ce::gui::AddressListModel", "Unicode String");
+        case ValueType::ByteArray:     return QCoreApplication::translate("ce::gui::AddressListModel", "Array of byte");
+        case ValueType::Binary:        return QCoreApplication::translate("ce::gui::AddressListModel", "Binary");
+        case ValueType::All:           return QCoreApplication::translate("ce::gui::AddressListModel", "All");
+        case ValueType::Grouped:       return QCoreApplication::translate("ce::gui::AddressListModel", "Grouped");
+        case ValueType::Custom:        return QCoreApplication::translate("ce::gui::AddressListModel", "Custom");
+        case ValueType::Pointer:       return QCoreApplication::translate("ce::gui::AddressListModel", "Pointer");
+    }
+    return QCoreApplication::translate("ce::gui::AddressListModel", "4 Bytes");
+}
+
 // Parse a Type-column display name back to a ValueType. First matches the canonical
-// name (ce::valueTypeName), so every name the column can show round-trips ("String",
-// "Unicode String", "Array of byte", "All", ...); then a few common synonyms. Int32 fallback.
-// A record's type from its name; nothing for an unknown name or a scan-only
-// type (All, Grouped), which a record cannot hold.
+// name (ce::valueTypeName) and its translation, so every name the column can show
+// round-trips ("String", "Unicode String", "Array of byte", "All", ...); then a few
+// common synonyms. Int32 fallback. A record's type from its name; nothing for an
+// unknown name or a scan-only type (All, Grouped), which a record cannot hold.
 static std::optional<ValueType> valueTypeFromDisplayName(const QString& s) {
     QString n = s.trimmed().toLower();
     if (const auto bracket = n.indexOf('['); bracket > 0) n = n.left(bracket).trimmed();   // "string[10]"
     for (auto t : {ValueType::Byte, ValueType::Int16, ValueType::Int32, ValueType::Int64,
                    ValueType::Float, ValueType::Double, ValueType::String, ValueType::UnicodeString,
                    ValueType::ByteArray, ValueType::Binary, ValueType::Custom, ValueType::Pointer})
-        if (n == QString(ce::valueTypeName(t)).toLower()) return t;
+        if (n == QString(ce::valueTypeName(t)).toLower() ||
+            n == valueTypeLabel(t).toLower()) return t;
     if (n == "word" || n == "short") return ValueType::Int16;
     if (n == "dword" || n == "int") return ValueType::Int32;
     if (n == "qword" || n == "long" || n == "int64") return ValueType::Int64;

@@ -2343,7 +2343,7 @@ void MemoryBrowser::syncViews(uintptr_t addr) {
         auto pr = proc_->read(addr, &probe, 1);
         if (!pr || *pr != 1)
             statusBar()->showMessage(
-                QString("0x%1 is not readable (unmapped or protected page)").arg(addr, 0, 16), 5000);
+                tr("0x%1 is not readable (unmapped or protected page)").arg(addr, 0, 16), 5000);
     }
 }
 

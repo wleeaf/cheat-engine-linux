@@ -249,7 +249,7 @@ void CodeFinderWindow::refresh() {
 void CodeFinderWindow::onStop() {
     finder_->stop();
     stopBtn_->setEnabled(false);
-    statusLabel_->setText(QString("Stopped. %1 unique instructions found").arg(finder_->results().size()));
+    statusLabel_->setText(tr("Stopped. %1 unique instructions found").arg(finder_->results().size()));
 }
 
 void CodeFinderWindow::onAddToList() {

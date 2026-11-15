@@ -300,12 +300,12 @@ void MainWindow::attachToPid(pid_t pid, const QString& name) {
     // explicit note, not a silent surprise later. See docs/CHALLENGING_TARGETS.md.
     {
         ce::TargetProfile prof = ce::probeTarget(pid);
-        processDetail_->setText(QString("PID %1  ·  %2").arg(pid).arg(QString::fromStdString(prof.summary())));
+        processDetail_->setText(QString("PID %1  ·  %2").arg(pid).arg(targetSummaryText(prof)));
         statusBar()->showMessage(
-            QString(tr("Attached to %1: %2")).arg(label, QString::fromStdString(prof.summary())), 8000);
+            QString(tr("Attached to %1: %2")).arg(label, targetSummaryText(prof)), 8000);
         // The summary + every note live on the process label's tooltip (persistent,
         // non-intrusive; hover to read).
-        QString tip = QString::fromStdString(prof.summary());
+        QString tip = targetSummaryText(prof);
         for (const auto& n : prof.notes) tip += "\n\n• " + QString::fromStdString(n);
         auto target = process_->targetDescription();
         tip += QString(tr("\n\nProgram: %1, %2-byte pointers, %3\nHost ABI: %4"))

@@ -1,5 +1,7 @@
 #include "gui/theme.hpp"
 
+#include "core/target_profile.hpp"
+
 #include <QApplication>
 #include <QCoreApplication>
 #include <QPalette>
@@ -580,6 +582,20 @@ QString formatByteSize(unsigned long long bytes) {
     if (value == static_cast<double>(static_cast<unsigned long long>(value)))
         return QString("%1 %2").arg(static_cast<unsigned long long>(value)).arg(units[unit]);
     return QString("%1 %2").arg(value, 0, 'f', value < 10 ? 1 : 0).arg(units[unit]);
+}
+
+QString targetSummaryText(const ce::TargetProfile& profile) {
+    if (!profile.valid) return QCoreApplication::translate("ce::gui::MainWindow", "unknown target");
+    const QString arch = QString::fromStdString(profile.archName());
+    if (!profile.emulator.empty())
+        return QCoreApplication::translate("ce::gui::MainWindow", "%1 emulator (%2)")
+            .arg(QString::fromStdString(profile.emulator), arch);
+    if (profile.wine)
+        return QCoreApplication::translate("ce::gui::MainWindow", "Wine/Proton %1 game").arg(arch);
+    if (!profile.runtimes.empty())
+        return QCoreApplication::translate("ce::gui::MainWindow", "%1 app (%2)")
+            .arg(QString::fromStdString(profile.runtimes.front()), arch);
+    return QCoreApplication::translate("ce::gui::MainWindow", "%1 native process").arg(arch);
 }
 
 } // namespace ce::gui

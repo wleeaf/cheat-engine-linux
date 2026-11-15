@@ -424,6 +424,51 @@ Linux 只允许程序在获准 ptrace 另一个进程时读取其内存。当 ke
     </message>
 </context>
 <context>
+    <name>QAbstractFileIconProvider</name>
+    <message>
+        <location filename="../gui/i18n.cpp" line="56"/>
+        <source>Drive</source>
+        <translation>驱动器</translation>
+    </message>
+    <message>
+        <location filename="../gui/i18n.cpp" line="59"/>
+        <source>Folder</source>
+        <comment>All other platforms</comment>
+        <translation>文件夹</translation>
+    </message>
+</context>
+<context>
+    <name>QFileDialog</name>
+    <message>
+        <location filename="../gui/i18n.cpp" line="54"/>
+        <source>&amp;Look in:</source>
+        <translation>查找范围：</translation>
+    </message>
+    <message>
+        <location filename="../gui/i18n.cpp" line="55"/>
+        <source>Files of &amp;type:</source>
+        <translation>文件类型：</translation>
+    </message>
+</context>
+<context>
+    <name>QFileSystemModel</name>
+    <message>
+        <location filename="../gui/i18n.cpp" line="60"/>
+        <source>Type</source>
+        <comment>All other platforms</comment>
+        <translation>类型</translation>
+    </message>
+</context>
+<context>
+    <name>QFontDatabase</name>
+    <message>
+        <location filename="../gui/i18n.cpp" line="61"/>
+        <source>Normal</source>
+        <comment>The Normal or Regular font weight</comment>
+        <translation>标准</translation>
+    </message>
+</context>
+<context>
     <name>SecretStore</name>
     <message>
         <location filename="../gui/secret_store.cpp" line="129"/>
@@ -544,12 +589,12 @@ Linux 只允许程序在获准 ptrace 另一个进程时读取其内存。当 ke
 <context>
     <name>Theme</name>
     <message>
-        <location filename="../gui/theme.cpp" line="568"/>
+        <location filename="../gui/theme.cpp" line="570"/>
         <source>%1  (main)</source>
         <translation>%1  (主线程)</translation>
     </message>
     <message>
-        <location filename="../gui/theme.cpp" line="569"/>
+        <location filename="../gui/theme.cpp" line="571"/>
         <source>%1  %2 (main)</source>
         <translation>%1  %2 (主线程)</translation>
     </message>
@@ -602,99 +647,170 @@ Linux 只允许程序在获准 ptrace 另一个进程时读取其内存。当 ke
 <context>
     <name>ce::gui::AddressListModel</name>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="307"/>
+        <location filename="../gui/addresslist_model.cpp" line="310"/>
         <source>No process attached</source>
         <translation>未附加进程</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="138"/>
+        <location filename="../gui/addresslist_model.cpp" line="141"/>
         <source>Auto Assembler script</source>
         <translation>自动汇编脚本</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="141"/>
+        <location filename="../gui/addresslist_model.cpp" line="144"/>
         <source>(Auto Assembler script)</source>
         <translation>（自动汇编脚本）</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="489"/>
+        <location filename="../gui/addresslist_model.cpp" line="492"/>
         <source>Table format</source>
         <translation>表格格式</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="489"/>
+        <location filename="../gui/addresslist_model.cpp" line="492"/>
         <source>Invalid record data order or pointer size.</source>
         <translation>记录数据字节序或指针大小无效。</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="794"/>
-        <location filename="../gui/addresslist_model.cpp" line="839"/>
-        <location filename="../gui/addresslist_model.cpp" line="1491"/>
-        <location filename="../gui/addresslist_model.cpp" line="1495"/>
-        <location filename="../gui/addresslist_model.cpp" line="1499"/>
-        <location filename="../gui/addresslist_model.cpp" line="1512"/>
-        <location filename="../gui/addresslist_model.cpp" line="1516"/>
+        <location filename="../gui/addresslist_model.cpp" line="797"/>
+        <location filename="../gui/addresslist_model.cpp" line="842"/>
+        <location filename="../gui/addresslist_model.cpp" line="1518"/>
+        <location filename="../gui/addresslist_model.cpp" line="1522"/>
+        <location filename="../gui/addresslist_model.cpp" line="1526"/>
+        <location filename="../gui/addresslist_model.cpp" line="1539"/>
+        <location filename="../gui/addresslist_model.cpp" line="1543"/>
         <source>Value edit failed</source>
         <translation>数值编辑失败</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="930"/>
+        <location filename="../gui/addresslist_model.cpp" line="933"/>
         <source>Process required</source>
         <translation>需要进程</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="931"/>
+        <location filename="../gui/addresslist_model.cpp" line="934"/>
         <source>Open a process before activating this auto-assembler record.</source>
         <translation>请先打开进程再激活此自动汇编记录。</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="956"/>
+        <location filename="../gui/addresslist_model.cpp" line="959"/>
         <source>Auto-assembler activation failed</source>
         <translation>自动汇编激活失败</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="956"/>
+        <location filename="../gui/addresslist_model.cpp" line="959"/>
         <source>Auto-assembler deactivation failed</source>
         <translation>自动汇编停用失败</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="978"/>
+        <location filename="../gui/addresslist_model.cpp" line="981"/>
         <source>Freeze failed</source>
         <translation>冻结失败</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="978"/>
+        <location filename="../gui/addresslist_model.cpp" line="981"/>
         <source>The value cannot be read right now, so there is nothing to freeze.</source>
         <translation>当前无法读取数值，因此没有可冻结的内容。</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="1142"/>
+        <location filename="../gui/addresslist_model.cpp" line="1145"/>
         <source>Active</source>
         <translation>启用</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="1143"/>
+        <location filename="../gui/addresslist_model.cpp" line="1146"/>
         <source>Description</source>
         <translation>描述</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="1144"/>
+        <location filename="../gui/addresslist_model.cpp" line="1147"/>
         <source>Address</source>
         <translation>地址</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="1145"/>
+        <location filename="../gui/addresslist_model.cpp" line="1148"/>
         <source>Type</source>
         <translation>类型</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="1146"/>
+        <location filename="../gui/addresslist_model.cpp" line="1149"/>
         <source>Value</source>
         <translation>数值</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="1491"/>
-        <location filename="../gui/addresslist_model.cpp" line="1512"/>
+        <location filename="../gui/addresslist_model.cpp" line="1380"/>
+        <source>Byte</source>
+        <translation>字节</translation>
+    </message>
+    <message>
+        <location filename="../gui/addresslist_model.cpp" line="1381"/>
+        <source>2 Bytes</source>
+        <translation>2 字节</translation>
+    </message>
+    <message>
+        <location filename="../gui/addresslist_model.cpp" line="1382"/>
+        <location filename="../gui/addresslist_model.cpp" line="1395"/>
+        <source>4 Bytes</source>
+        <translation>4 字节</translation>
+    </message>
+    <message>
+        <location filename="../gui/addresslist_model.cpp" line="1383"/>
+        <source>8 Bytes</source>
+        <translation>8 字节</translation>
+    </message>
+    <message>
+        <location filename="../gui/addresslist_model.cpp" line="1384"/>
+        <source>Float</source>
+        <translation>浮点数</translation>
+    </message>
+    <message>
+        <location filename="../gui/addresslist_model.cpp" line="1385"/>
+        <source>Double</source>
+        <translation>双精度浮点数</translation>
+    </message>
+    <message>
+        <location filename="../gui/addresslist_model.cpp" line="1386"/>
+        <source>String</source>
+        <translation>字符串</translation>
+    </message>
+    <message>
+        <location filename="../gui/addresslist_model.cpp" line="1387"/>
+        <source>Unicode String</source>
+        <translation>Unicode 字符串</translation>
+    </message>
+    <message>
+        <location filename="../gui/addresslist_model.cpp" line="1388"/>
+        <source>Array of byte</source>
+        <translation>字节数组</translation>
+    </message>
+    <message>
+        <location filename="../gui/addresslist_model.cpp" line="1389"/>
+        <source>Binary</source>
+        <translation>二进制</translation>
+    </message>
+    <message>
+        <location filename="../gui/addresslist_model.cpp" line="1390"/>
+        <source>All</source>
+        <translation>全部</translation>
+    </message>
+    <message>
+        <location filename="../gui/addresslist_model.cpp" line="1391"/>
+        <source>Grouped</source>
+        <translation>分组</translation>
+    </message>
+    <message>
+        <location filename="../gui/addresslist_model.cpp" line="1392"/>
+        <source>Custom</source>
+        <translation>自定义</translation>
+    </message>
+    <message>
+        <location filename="../gui/addresslist_model.cpp" line="1393"/>
+        <source>Pointer</source>
+        <translation>指针</translation>
+    </message>
+    <message>
+        <location filename="../gui/addresslist_model.cpp" line="1518"/>
+        <location filename="../gui/addresslist_model.cpp" line="1539"/>
         <source>The pointer path does not resolve right now.</source>
         <translation>指针路径当前无法解析。</translation>
     </message>
@@ -1117,6 +1233,11 @@ My health shows 100. Find it and keep it at 100.</source>
         <location filename="../gui/breakpointlist.cpp" line="21"/>
         <source>Enabled</source>
         <translation>已启用</translation>
+    </message>
+    <message>
+        <location filename="../gui/breakpointlist.cpp" line="21"/>
+        <source>ID</source>
+        <translation>ID</translation>
     </message>
     <message>
         <location filename="../gui/breakpointlist.cpp" line="26"/>
@@ -1788,6 +1909,7 @@ My health shows 100. Find it and keep it at 100.</source>
     </message>
     <message>
         <location filename="../gui/codefinder.cpp" line="181"/>
+        <location filename="../gui/codefinder.cpp" line="252"/>
         <source>Stopped. %1 unique instructions found</source>
         <translation>已停止。已找到 %1 条唯一指令</translation>
     </message>
@@ -6814,6 +6936,31 @@ If nothing shows up, the value may be written by a background thread; tell me an
         <source>New Scan</source>
         <translation>新扫描</translation>
     </message>
+    <message>
+        <location filename="../gui/theme.cpp" line="588"/>
+        <source>unknown target</source>
+        <translation>未知目标</translation>
+    </message>
+    <message>
+        <location filename="../gui/theme.cpp" line="591"/>
+        <source>%1 emulator (%2)</source>
+        <translation>%1 模拟器（%2）</translation>
+    </message>
+    <message>
+        <location filename="../gui/theme.cpp" line="594"/>
+        <source>Wine/Proton %1 game</source>
+        <translation>Wine/Proton %1 游戏</translation>
+    </message>
+    <message>
+        <location filename="../gui/theme.cpp" line="596"/>
+        <source>%1 app (%2)</source>
+        <translation>%1 应用（%2）</translation>
+    </message>
+    <message>
+        <location filename="../gui/theme.cpp" line="598"/>
+        <source>%1 native process</source>
+        <translation>%1 本机进程</translation>
+    </message>
 </context>
 <context>
     <name>ce::gui::MemPixelView</name>
@@ -7113,6 +7260,11 @@ If nothing shows up, the value may be written by a background thread; tell me an
         <location filename="../gui/memorybrowser.cpp" line="2266"/>
         <source>Address, symbol, or expression (e.g. worker, target2+0x100):</source>
         <translation>地址、符号或表达式（例如 worker、target2+0x100）：</translation>
+    </message>
+    <message>
+        <location filename="../gui/memorybrowser.cpp" line="2346"/>
+        <source>0x%1 is not readable (unmapped or protected page)</source>
+        <translation>0x%1 不可读（未映射或受保护的页面）</translation>
     </message>
     <message>
         <location filename="../gui/memorybrowser.cpp" line="2450"/>
@@ -7824,6 +7976,11 @@ to 0x%3?</source>
         <location filename="../gui/overlay.cpp" line="12"/>
         <source>CE Overlay</source>
         <translation>CE 覆盖层</translation>
+    </message>
+    <message>
+        <location filename="../gui/overlay.cpp" line="13"/>
+        <source>No process</source>
+        <translation>没有进程</translation>
     </message>
 </context>
 <context>
@@ -8674,251 +8831,256 @@ to 0x%3?</source>
 <context>
     <name>ce::gui::ScriptEditor</name>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="150"/>
+        <location filename="../gui/scripteditor.cpp" line="149"/>
+        <source>Auto Assembler script</source>
+        <translation>自动汇编脚本</translation>
+    </message>
+    <message>
+        <location filename="../gui/scripteditor.cpp" line="151"/>
         <source>Auto Assembler</source>
         <translation>自动汇编器</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="156"/>
+        <location filename="../gui/scripteditor.cpp" line="157"/>
         <source>Execute</source>
         <translation>执行</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="159"/>
+        <location filename="../gui/scripteditor.cpp" line="160"/>
         <source>Enable the script in the selected process</source>
         <translation>在选中的进程中启用该脚本</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="162"/>
+        <location filename="../gui/scripteditor.cpp" line="163"/>
         <source>Disable</source>
         <translation>禁用</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="166"/>
+        <location filename="../gui/scripteditor.cpp" line="167"/>
         <source>Syntax Check</source>
         <translation>语法检查</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="169"/>
-        <location filename="../gui/scripteditor.cpp" line="487"/>
-        <location filename="../gui/scripteditor.cpp" line="491"/>
-        <location filename="../gui/scripteditor.cpp" line="496"/>
+        <location filename="../gui/scripteditor.cpp" line="170"/>
+        <location filename="../gui/scripteditor.cpp" line="488"/>
+        <location filename="../gui/scripteditor.cpp" line="492"/>
+        <location filename="../gui/scripteditor.cpp" line="497"/>
         <source>Add to Cheat Table</source>
         <translation>添加到作弊表</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="172"/>
+        <location filename="../gui/scripteditor.cpp" line="173"/>
         <source>Save this script as a cheat-table entry whose checkbox enables/disables it.</source>
         <translation>将此脚本保存为作弊表条目，其复选框用于启用/禁用该脚本。</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="176"/>
+        <location filename="../gui/scripteditor.cpp" line="177"/>
         <source>Load</source>
         <translation>加载</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="179"/>
+        <location filename="../gui/scripteditor.cpp" line="180"/>
         <source>Load Script</source>
         <translation>加载脚本</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="179"/>
+        <location filename="../gui/scripteditor.cpp" line="180"/>
         <source>CE Scripts (*.cea *.CEA *.asm);;All Files (*)</source>
         <translation>CE 脚本 (*.cea *.CEA *.asm);;所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="184"/>
+        <location filename="../gui/scripteditor.cpp" line="185"/>
         <source>Load failed</source>
         <translation>加载失败</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="187"/>
+        <location filename="../gui/scripteditor.cpp" line="188"/>
         <source>Save</source>
         <translation>保存</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="190"/>
+        <location filename="../gui/scripteditor.cpp" line="191"/>
         <source>Save Script</source>
         <translation>保存脚本</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="190"/>
+        <location filename="../gui/scripteditor.cpp" line="191"/>
         <source>CE Scripts (*.cea *.CEA);;All Files (*)</source>
         <translation>CE 脚本 (*.cea *.CEA);;所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="195"/>
+        <location filename="../gui/scripteditor.cpp" line="196"/>
         <source>Save failed</source>
         <translation>保存失败</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="238"/>
+        <location filename="../gui/scripteditor.cpp" line="239"/>
         <source>Insert template?</source>
         <translation>插入模板？</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="239"/>
+        <location filename="../gui/scripteditor.cpp" line="240"/>
         <source>Replace the current script with the &apos;%1&apos; template?
 Click No to insert at the cursor instead.</source>
         <translation>是否用“%1”模板替换当前脚本？
 点击“否”将在光标处插入。</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="252"/>
+        <location filename="../gui/scripteditor.cpp" line="253"/>
         <source>Templates</source>
         <translation>模板</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="254"/>
+        <location filename="../gui/scripteditor.cpp" line="255"/>
         <source>Generate a template for the selected instruction (Ctrl+I)</source>
         <translation>为选中的指令生成模板 (Ctrl+I)</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="266"/>
+        <location filename="../gui/scripteditor.cpp" line="267"/>
         <source>Choose Templates to generate an injection at the selected instruction,
 or write an Auto Assembler script here.</source>
         <translation>选择“模板”以在选中的指令处生成注入，
 或在此编写自动汇编脚本。</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="274"/>
+        <location filename="../gui/scripteditor.cpp" line="275"/>
         <source>Messages from Execute and Syntax Check appear here.</source>
         <translation>执行和语法检查的消息会显示在这里。</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="317"/>
+        <location filename="../gui/scripteditor.cpp" line="318"/>
         <source>No process selected!</source>
         <translation>未选择进程！</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="335"/>
+        <location filename="../gui/scripteditor.cpp" line="336"/>
         <source>Executing...</source>
         <translation>正在执行...</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="350"/>
+        <location filename="../gui/scripteditor.cpp" line="351"/>
         <source>Script executed successfully.</source>
         <translation>脚本执行成功。</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="357"/>
+        <location filename="../gui/scripteditor.cpp" line="358"/>
         <source>FAILED: %1</source>
         <translation>失败：%1</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="364"/>
+        <location filename="../gui/scripteditor.cpp" line="365"/>
         <source>Cleanup is still pending. Use Disable to retry restoration.</source>
         <translation>清理仍未完成。请使用“禁用”重试恢复。</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="393"/>
+        <location filename="../gui/scripteditor.cpp" line="394"/>
         <source>Disabling...</source>
         <translation>正在禁用...</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="405"/>
+        <location filename="../gui/scripteditor.cpp" line="406"/>
         <source>Script disabled.</source>
         <translation>脚本已禁用。</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="413"/>
+        <location filename="../gui/scripteditor.cpp" line="414"/>
         <source>Cleanup incomplete: %1</source>
         <translation>清理未完成：%1</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="414"/>
+        <location filename="../gui/scripteditor.cpp" line="415"/>
         <source>Recovery state retained. Use Disable to retry.</source>
         <translation>已保留恢复状态。请使用“禁用”重试。</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="427"/>
+        <location filename="../gui/scripteditor.cpp" line="428"/>
         <source>No process</source>
         <translation>没有进程</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="427"/>
+        <location filename="../gui/scripteditor.cpp" line="428"/>
         <source>Attach to a process first.</source>
         <translation>请先附加到一个进程。</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="431"/>
-        <location filename="../gui/scripteditor.cpp" line="445"/>
-        <location filename="../gui/scripteditor.cpp" line="466"/>
+        <location filename="../gui/scripteditor.cpp" line="432"/>
+        <location filename="../gui/scripteditor.cpp" line="446"/>
+        <location filename="../gui/scripteditor.cpp" line="467"/>
         <source>Injection template</source>
         <translation>注入模板</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="431"/>
+        <location filename="../gui/scripteditor.cpp" line="432"/>
         <source>Disable the current script before generating another injection.</source>
         <translation>生成另一个注入前请先禁用当前脚本。</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="446"/>
+        <location filename="../gui/scripteditor.cpp" line="447"/>
         <source>Address or expression to inject at:</source>
         <translation>注入地址或表达式：</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="452"/>
+        <location filename="../gui/scripteditor.cpp" line="453"/>
         <source>Bad address</source>
         <translation>地址无效</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="452"/>
+        <location filename="../gui/scripteditor.cpp" line="453"/>
         <source>Enter a valid address, module offset, or symbol expression.</source>
         <translation>请输入有效的地址、模块偏移或符号表达式。</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="457"/>
+        <location filename="../gui/scripteditor.cpp" line="458"/>
         <source>Pointer injection</source>
         <translation>指针注入</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="457"/>
+        <location filename="../gui/scripteditor.cpp" line="458"/>
         <source>Register holding the pointer:</source>
         <translation>保存指针的寄存器：</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="470"/>
+        <location filename="../gui/scripteditor.cpp" line="471"/>
         <source>Replace script?</source>
         <translation>替换脚本？</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="471"/>
+        <location filename="../gui/scripteditor.cpp" line="472"/>
         <source>Replace the current script with the generated injection?</source>
         <translation>是否用生成的注入替换当前脚本？</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="480"/>
+        <location filename="../gui/scripteditor.cpp" line="481"/>
         <source>Generated injection at 0x%1. Edit the code in newmem.</source>
         <translation>已在 0x%1 生成注入。请在 newmem 中编辑代码。</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="487"/>
+        <location filename="../gui/scripteditor.cpp" line="488"/>
         <source>The script is empty.</source>
         <translation>脚本为空。</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="492"/>
+        <location filename="../gui/scripteditor.cpp" line="493"/>
         <source>This editor isn&apos;t connected to a cheat table.</source>
         <translation>此编辑器未连接到作弊表。</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="497"/>
+        <location filename="../gui/scripteditor.cpp" line="498"/>
         <source>Description for the table entry:</source>
         <translation>表格条目的描述：</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="502"/>
+        <location filename="../gui/scripteditor.cpp" line="503"/>
         <source>Saved to the cheat table. Toggle its checkbox to enable/disable.</source>
         <translation>已保存到作弊表。切换其复选框即可启用/禁用。</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="522"/>
+        <location filename="../gui/scripteditor.cpp" line="523"/>
         <source>Syntax check passed.</source>
         <translation>语法检查通过。</translation>
     </message>
     <message>
-        <location filename="../gui/scripteditor.cpp" line="525"/>
+        <location filename="../gui/scripteditor.cpp" line="526"/>
         <source>Syntax check failed: %1</source>
         <translation>语法检查失败：%1</translation>
     </message>
@@ -9939,27 +10101,72 @@ or write an Auto Assembler script here.</source>
 <context>
     <name>ce::gui::ThreadListWindow</name>
     <message>
-        <location filename="../gui/threadlist.cpp" line="14"/>
+        <location filename="../gui/threadlist.cpp" line="18"/>
+        <source>Running</source>
+        <translation>运行</translation>
+    </message>
+    <message>
+        <location filename="../gui/threadlist.cpp" line="19"/>
+        <source>Sleeping</source>
+        <translation>休眠</translation>
+    </message>
+    <message>
+        <location filename="../gui/threadlist.cpp" line="20"/>
+        <source>Disk sleep</source>
+        <translation>磁盘休眠</translation>
+    </message>
+    <message>
+        <location filename="../gui/threadlist.cpp" line="21"/>
+        <source>Stopped</source>
+        <translation>已停止</translation>
+    </message>
+    <message>
+        <location filename="../gui/threadlist.cpp" line="22"/>
+        <source>Tracing stop</source>
+        <translation>跟踪停止</translation>
+    </message>
+    <message>
+        <location filename="../gui/threadlist.cpp" line="23"/>
+        <source>Zombie</source>
+        <translation>僵尸进程</translation>
+    </message>
+    <message>
+        <location filename="../gui/threadlist.cpp" line="24"/>
+        <source>Dead</source>
+        <translation>已结束</translation>
+    </message>
+    <message>
+        <location filename="../gui/threadlist.cpp" line="25"/>
+        <source>Parked</source>
+        <translation>已挂起</translation>
+    </message>
+    <message>
+        <location filename="../gui/threadlist.cpp" line="26"/>
+        <source>Idle</source>
+        <translation>空闲</translation>
+    </message>
+    <message>
+        <location filename="../gui/threadlist.cpp" line="37"/>
         <source>Thread List</source>
         <translation>线程列表</translation>
     </message>
     <message>
-        <location filename="../gui/threadlist.cpp" line="22"/>
+        <location filename="../gui/threadlist.cpp" line="45"/>
         <source>TID</source>
         <translation>线程 ID</translation>
     </message>
     <message>
-        <location filename="../gui/threadlist.cpp" line="22"/>
+        <location filename="../gui/threadlist.cpp" line="45"/>
         <source>Name</source>
         <translation>名称</translation>
     </message>
     <message>
-        <location filename="../gui/threadlist.cpp" line="22"/>
+        <location filename="../gui/threadlist.cpp" line="45"/>
         <source>State</source>
         <translation>状态</translation>
     </message>
     <message>
-        <location filename="../gui/threadlist.cpp" line="72"/>
+        <location filename="../gui/threadlist.cpp" line="95"/>
         <source>Thread List: %1 threads</source>
         <translation>线程列表：%1 个线程</translation>
     </message>

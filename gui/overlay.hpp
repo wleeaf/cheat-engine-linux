@@ -20,7 +20,7 @@ protected:
     void paintEvent(QPaintEvent* event) override;
 
 private:
-    QString statusText_ = "No process";
+    QString statusText_;
     bool osdEnabled_ = true;
     bool crosshairEnabled_ = true;
 };

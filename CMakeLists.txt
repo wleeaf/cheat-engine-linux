@@ -352,8 +352,16 @@ endif()
 add_executable(cescan cli/main.cpp)
 target_link_libraries(cescan PRIVATE cecore)
 
+# A library injected into a game must load into ordinary, uninstrumented
+# programs, so a sanitizer build leaves it uninstrumented.
+function(cecore_injected_library target)
+    target_compile_options(${target} PRIVATE -fno-sanitize=all)
+    target_link_options(${target} PRIVATE -fno-sanitize=all)
+endfunction()
+
 # ── Speedhack .so ──
 add_library(speedhack SHARED plugins/speedhack.c)
+cecore_injected_library(speedhack)
 target_link_libraries(speedhack PRIVATE dl rt)
 # -Bsymbolic-functions: the lib's own references to its wrapper functions (e.g.
 # taking &nanosleep for the GOT-patch table) must bind to OUR definitions, not
@@ -364,12 +372,14 @@ set_target_properties(speedhack PROPERTIES PREFIX "lib")
 
 # ── In-process VEH shim (LD_PRELOAD library) ──
 add_library(cecore_inprocess_veh SHARED plugins/inprocess_veh.c)
+cecore_injected_library(cecore_inprocess_veh)
 target_link_libraries(cecore_inprocess_veh PRIVATE dl)
 set_target_properties(cecore_inprocess_veh PROPERTIES PREFIX "lib")
 
 # ── audiohack (pitch-preserving speedhack companion, ALSA-side) ──
 if(ASOUND_INCLUDE AND ASOUND_LIB)
     add_library(cecore_audiohack SHARED plugins/audiohack.cpp)
+    cecore_injected_library(cecore_audiohack)
     target_include_directories(cecore_audiohack PRIVATE ${ASOUND_INCLUDE})
     target_link_libraries(cecore_audiohack PRIVATE dl rt ${ASOUND_LIB})
     set_target_properties(cecore_audiohack PROPERTIES PREFIX "lib")
@@ -387,9 +397,7 @@ endif()
 # the mono_* embedding API in-process for ground-truth class/field offsets).
 add_library(cecore_mono_agent SHARED plugins/mono_agent.c)
 target_link_libraries(cecore_mono_agent PRIVATE ${CMAKE_DL_LIBS} Threads::Threads)
-# An injected library must also load into ordinary, unsanitized applications.
-target_compile_options(cecore_mono_agent PRIVATE -fno-sanitize=all)
-target_link_options(cecore_mono_agent PRIVATE -fno-sanitize=all)
+cecore_injected_library(cecore_mono_agent)
 set_target_properties(cecore_mono_agent PROPERTIES AUTOMOC OFF)
 
 add_library(cecore_sample_plugin SHARED plugins/sample_plugin.c)
@@ -398,6 +406,7 @@ set_target_properties(cecore_sample_plugin PROPERTIES PREFIX "lib")
 
 # ── Vulkan explicit overlay layer ──
 add_library(ce_vulkan_overlay_layer SHARED platform/vulkan_overlay_layer.cpp)
+cecore_injected_library(ce_vulkan_overlay_layer)
 set_target_properties(ce_vulkan_overlay_layer PROPERTIES
     PREFIX "lib"
     OUTPUT_NAME "ce_vulkan_overlay_layer"

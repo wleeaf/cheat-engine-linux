@@ -1,4 +1,12 @@
 #pragma once
+
+// An ASan or TSan build: such a process reserves terabytes of shadow address
+// space, so tests that scan a whole process or fork and trace a target skip.
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+#define CE_TEST_SANITIZED 1
+#else
+#define CE_TEST_SANITIZED 0
+#endif
 /// Shared by the cecore_test sources (main.cpp and cecore_test_*.cpp): the
 /// failure-counting printf, the FakeProcessHandle model, the in-process ceserver
 /// stub and the declarations of the tests main() runs.

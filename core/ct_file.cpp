@@ -1130,18 +1130,19 @@ static std::string unknownRecordElements(const std::string& own) {
 static size_t findMatchingClose(const std::string& xml, size_t openPos, const std::string& tag) {
     std::string open = "<" + tag + ">";
     std::string close = "</" + tag + ">";
-    size_t scan = openPos + open.size();
+    // Keep the next opening and closing tag and advance only the one taken:
+    // searching both again on every step rescanned the text up to the next
+    // close each time, which made a deeply nested table quadratic to load.
+    size_t nextOpen = xml.find(open, openPos + open.size());
+    size_t nextClose = xml.find(close, openPos + open.size());
     int depth = 1;
-    while (depth > 0) {
-        auto nextOpen = xml.find(open, scan);
-        auto nextClose = xml.find(close, scan);
-        if (nextClose == std::string::npos) return std::string::npos;
+    while (nextClose != std::string::npos) {
         if (nextOpen != std::string::npos && nextOpen < nextClose) {
             ++depth;
-            scan = nextOpen + open.size();
+            nextOpen = xml.find(open, nextOpen + open.size());
         } else {
             if (--depth == 0) return nextClose;
-            scan = nextClose + close.size();
+            nextClose = xml.find(close, nextClose + close.size());
         }
     }
     return std::string::npos;

@@ -444,18 +444,24 @@ jobs:
           key: cecore-tsan-deps-${{ runner.os }}-keystone-0.9.2-v1
 
       - name: Configure (ThreadSanitizer)
-        run: cmake -S . -B build-tsan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCECORE_TSAN=ON
+        # -O1, as ThreadSanitizer recommends: Debug's -O0 makes cecore_test
+        # take well over half an hour.
+        run: cmake -S . -B build-tsan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCECORE_TSAN=ON -DCMAKE_CXX_FLAGS_DEBUG="-O1 -g" -DCMAKE_C_FLAGS_DEBUG="-O1 -g"
 
       - name: Build the threaded tests
-        run: cmake --build build-tsan -j"$(nproc)" --target cecore_deep_test table_persistence_integration
+        run: cmake --build build-tsan -j"$(nproc)" --target cecore_deep_test table_persistence_integration cecore_test speedhack
 
-      # The deep tests cover the debugger's concurrent stops, scans and the
-      # agent session's locking. Their targets are forked children that start
+      # The deep tests and cecore_test cover the debugger's concurrent stops,
+      # scans, the agent session's locking and the Lua engine's threads. Their targets are forked children that start
       # threads, which ThreadSanitizer allows only with die_after_fork=0.
       - name: Run under ThreadSanitizer
-        timeout-minutes: 20
+        timeout-minutes: 60
         env:
           TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1:die_after_fork=0
         run: |
           ./build-tsan/cecore_deep_test
           ./build-tsan/table_persistence_integration
+          # The lock-order checker counts each recursive re-lock and overflows
+          # its 64-lock table on the process handle's recursive mutex; races
+          # are still detected.
+          TSAN_OPTIONS=halt_on_error=1:detect_deadlocks=0:die_after_fork=0 ./build-tsan/cecore_test

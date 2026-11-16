@@ -171,6 +171,28 @@ int main() {
         const double small=fastest(table(5000),5000), large=fastest(table(20000),20000);
         if (large>=small*10) printf("table load: 5000 records %.3fs, 20000 records %.3fs\n",small,large);
         check(loaded && large<small*10,"a table of 20000 flat records loads in linear time");
+        // A table nested past the depth limit is refused, also in linear time:
+        // finding each record's end once rescanned the text on every step.
+        auto nested=[](int depth) {
+            std::string text="<CheatTable><CheatEntries>";
+            for (int i=0;i<depth;++i) text+="<CheatEntry><GroupHeader>1</GroupHeader><CheatEntries>";
+            for (int i=0;i<depth;++i) text+="</CheatEntries></CheatEntry>";
+            return text+"</CheatEntries></CheatTable>";
+        };
+        bool refused=true;
+        auto fastestRefusal=[&](const std::string& text) {
+            double best=1e9;
+            for (int run=0;run<3;++run) {
+                CheatTable t;
+                const auto start=std::chrono::steady_clock::now();
+                refused=!t.loadFromString(text) && refused;
+                best=std::min(best,std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count());
+            }
+            return best;
+        };
+        const double shallow=fastestRefusal(nested(5000)), deep=fastestRefusal(nested(20000));
+        if (deep>=shallow*10) printf("deep table: 5000 levels %.3fs, 20000 levels %.3fs\n",shallow,deep);
+        check(refused && deep<shallow*10,"a table nested 20000 deep is refused in linear time");
     }
     {
         CheatTable t;CheatEntry e;e.id=1;e.type=ValueType::Int32;e.addressString="[[game.exe+1C]+8]+10";t.entries={e};

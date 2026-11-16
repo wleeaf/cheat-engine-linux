@@ -243,7 +243,13 @@ jobs:
         # snap run --shell applies the snap's real AppArmor profile, seccomp
         # filter and mount namespace; its user-data directory is visible inside.
         run: |
-          sudo snap install hello-world
+          # The Snap Store can time out for minutes at a time: retry the
+          # install with a growing pause instead of failing the whole job.
+          for attempt in 1 2 3 4 5; do
+            sudo snap install hello-world && break
+            [ "$attempt" = 5 ] && exit 1
+            sleep $((attempt * 30))
+          done
           data="$HOME/snap/hello-world/current"
           mkdir -p "$data" && cp build/static_fixture_musl "$data/"
           python3 test/frontend_target_gate.py build "$data/static_fixture_musl" \

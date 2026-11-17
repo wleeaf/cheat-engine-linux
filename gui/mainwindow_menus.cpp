@@ -9,6 +9,7 @@
 #include "core/local_target.hpp"
 #include "gui/gdbconnectiondialog.hpp"
 #include "gui/theme.hpp"
+#include "gui/helpview.hpp"
 #include "gui/i18n.hpp"
 #include "core/expression.hpp"
 #include "core/value_io.hpp"
@@ -67,7 +68,6 @@
 #include <sys/utsname.h>
 #include <atomic>
 #include <QCoreApplication>
-#include <QTextBrowser>
 #include <QDesktopServices>
 #include <QUrl>
 #include <fstream>
@@ -949,7 +949,7 @@ void MainWindow::buildHelpMenu() {
     auto* help = menuBar()->addMenu(tr("&Help"));
     help->addAction(tr("Cheat Engine Help"), this, [this]() {
         openHelpDoc("README.md", tr("Cheat Engine for Linux: Help"),
-                    "https://github.com/wleeaf/cheat-engine-linux#readme");
+                    "https://github.com/wleeaf/cheat-engine-linux/blob/main/README.md");
     });
     help->addAction(tr("Lua documentation"), this, [this]() {
         openHelpDoc("docs/SCRIPTING.md", tr("Lua / Scripting documentation"),
@@ -983,7 +983,9 @@ static QString findDocFile(const QString& rel) {
         exeDir + "/" + rel,                                          // next to the binary
         exeDir + "/../" + rel,                                       // dev build: build/../<rel>
         exeDir + "/../share/doc/cheat-engine-linux/" + base,         // installed
+        exeDir + "/../share/doc/cheat-engine-linux/" + rel,          // installed, links keep rel paths
         "/usr/share/doc/cheat-engine-linux/" + base,
+        "/usr/share/doc/cheat-engine-linux/" + rel,
     };
     for (const auto& c : candidates)
         if (QFileInfo::exists(c)) return QFileInfo(c).absoluteFilePath();
@@ -1002,12 +1004,25 @@ void MainWindow::openHelpDoc(const QString& relPath, const QString& title, const
     dlg->setWindowTitle(title);
     dlg->resize(780, 640);
     auto* v = new QVBoxLayout(dlg);
-    auto* view = new QTextBrowser;
-    view->setOpenExternalLinks(true);
-    view->setMarkdown(QString::fromUtf8(f.readAll()));   // render the Markdown
-    view->document()->setDocumentMargin(12);
+    // HelpView renders the docs through md4c as HTML and paints a copy button
+    // on every code block; QTextBrowser alone both mangles the Markdown and
+    // cannot style code blocks this way.
+    auto* view = new ce::gui::HelpView;
+    view->setDocResolver([](const QString& rel) { return findDocFile(rel); });
     v->addWidget(view);
     auto* row = new QHBoxLayout;
+    auto* back = new QPushButton(tr("Back"));
+    auto* forward = new QPushButton(tr("Forward"));
+    back->setEnabled(false);
+    forward->setEnabled(false);
+    connect(back, &QPushButton::clicked, view, &ce::gui::HelpView::goBack);
+    connect(forward, &QPushButton::clicked, view, &ce::gui::HelpView::goForward);
+    connect(view, &ce::gui::HelpView::historyChanged, dlg, [view, back, forward] {
+        back->setEnabled(view->canGoBack());
+        forward->setEnabled(view->canGoForward());
+    });
+    row->addWidget(back);
+    row->addWidget(forward);
     auto* online = new QPushButton(tr("Open on GitHub"));
     connect(online, &QPushButton::clicked, this, [url]() { QDesktopServices::openUrl(QUrl(url)); });
     row->addWidget(online);
@@ -1016,6 +1031,8 @@ void MainWindow::openHelpDoc(const QString& relPath, const QString& title, const
     row->addWidget(closeBtn);
     v->addLayout(row);
     connect(closeBtn, &QPushButton::clicked, dlg, &QDialog::accept);
+    // Initial page after the buttons exist, so historyChanged can update them.
+    view->loadDocFile(path, QUrl(url));
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
 }

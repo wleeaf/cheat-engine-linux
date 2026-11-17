@@ -15,6 +15,23 @@ reimplementation of Cheat Engine).
 
 ## Unreleased
 
+- The Help window renders the whole README again and follows GitHub's Markdown
+  design. Qt's own Markdown importer drops every block after a raw HTML block,
+  and README.md opens with an `<img>`, so only the introduction and headings
+  used to show. The Help windows now parse the docs with the vendored md4c
+  (MIT) and render the result as HTML: GitHub light/dark colours, typographic
+  headings, bordered code cards, accent links, dim quotes, the README
+  screenshot (installed next to the docs), and a copy button on every code
+  block that copies exactly that block. The Lua documentation goes through the
+  same renderer. Links to help pages that ship offline (the Lua reference)
+  open inside the Help window; links to pages that are not installed point at
+  the "Open on GitHub" button instead of opening a browser or a blank page, so
+  that button stays the only way to the online docs. Back and Forward buttons
+  remember the docs opened in the window. `gui_help_smoke` renders both docs
+  offscreen, checks the text on both sides of the image, that clicking a code
+  block's copy button puts the block on the clipboard, and that in-app link
+  navigation works without blanking the page and Back/Forward return to the
+  open docs.
 - Fedora and openSUSE packages are now built from
   `packaging/rpm/cheat-engine-linux.spec` and attached to releases next to the
   `.deb` and the AppImage. The RPM grants `cap_sys_ptrace` at install like the

@@ -589,12 +589,12 @@ Linux 只允许程序在获准 ptrace 另一个进程时读取其内存。当 ke
 <context>
     <name>Theme</name>
     <message>
-        <location filename="../gui/theme.cpp" line="568"/>
+        <location filename="../gui/theme.cpp" line="573"/>
         <source>%1  (main)</source>
         <translation>%1  (主线程)</translation>
     </message>
     <message>
-        <location filename="../gui/theme.cpp" line="569"/>
+        <location filename="../gui/theme.cpp" line="574"/>
         <source>%1  %2 (main)</source>
         <translation>%1  %2 (主线程)</translation>
     </message>
@@ -1092,7 +1092,7 @@ My health shows 100. Find it and keep it at 100.</source>
         <translation>回复内容过大</translation>
     </message>
     <message>
-        <location filename="../gui/agent_panel.cpp" line="705"/>
+        <location filename="../gui/agent_panel.cpp" line="706"/>
         <source>stopped</source>
         <translation>已停止</translation>
     </message>
@@ -3854,6 +3854,14 @@ Applying it will grow the file (zero-filling the gap). Continue?</source>
     </message>
 </context>
 <context>
+    <name>ce::gui::HelpView</name>
+    <message>
+        <location filename="../gui/helpview.cpp" line="128"/>
+        <source>This page is not part of the offline help. Use &quot;Open on GitHub&quot; to read it online.</source>
+        <translation>这个页面不在离线帮助里，请用“Open on GitHub”在线阅读。</translation>
+    </message>
+</context>
+<context>
     <name>ce::gui::HexView</name>
     <message>
         <location filename="../gui/memorybrowser.cpp" line="262"/>
@@ -4626,10 +4634,10 @@ Click Allocate to reserve memory in the target.</source>
         <location filename="../gui/mainwindow_menus.cpp" line="449"/>
         <location filename="../gui/mainwindow_menus.cpp" line="596"/>
         <location filename="../gui/mainwindow_menus.cpp" line="641"/>
-        <location filename="../gui/mainwindow_menus.cpp" line="1015"/>
-        <location filename="../gui/mainwindow_menus.cpp" line="1040"/>
-        <location filename="../gui/mainwindow_menus.cpp" line="1071"/>
-        <location filename="../gui/mainwindow_menus.cpp" line="1124"/>
+        <location filename="../gui/mainwindow_menus.cpp" line="1030"/>
+        <location filename="../gui/mainwindow_menus.cpp" line="1057"/>
+        <location filename="../gui/mainwindow_menus.cpp" line="1088"/>
+        <location filename="../gui/mainwindow_menus.cpp" line="1141"/>
         <source>Close</source>
         <translation>关闭</translation>
     </message>
@@ -5183,6 +5191,16 @@ The snapshot stopped at its %1 limit: writable memory after that point is not in
         <translation>关于</translation>
     </message>
     <message>
+        <location filename="../gui/mainwindow_menus.cpp" line="1014"/>
+        <source>Back</source>
+        <translation>后退</translation>
+    </message>
+    <message>
+        <location filename="../gui/mainwindow_menus.cpp" line="1015"/>
+        <source>Forward</source>
+        <translation>前进</translation>
+    </message>
+    <message>
         <source>About Cheat Engine for Linux</source>
         <translation type="vanished">关于 Cheat Engine for Linux</translation>
     </message>
@@ -5191,77 +5209,77 @@ The snapshot stopped at its %1 limit: writable memory after that point is not in
         <translation type="vanished">&lt;h2 style=&apos;margin-bottom:2px&apos;&gt;Cheat Engine for Linux&lt;/h2&gt;&lt;p style=&apos;margin-top:0&apos;&gt;版本 %1&lt;/p&gt;&lt;p&gt;适用于原生 Linux、Wine 和 Proton 程序的内存扫描、调试与代码注入工具。&lt;/p&gt;&lt;p&gt;基于 Qt %2、Capstone、Keystone 和 Lua 5.3 构建。&lt;br&gt;以 MIT 许可证免费开源。&lt;/p&gt;&lt;p&gt;&lt;a href=&apos;https://github.com/wleeaf/cheat-engine-linux&apos;&gt;github.com/wleeaf/cheat-engine-linux&lt;/a&gt;&lt;/p&gt;</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_menus.cpp" line="1011"/>
+        <location filename="../gui/mainwindow_menus.cpp" line="1026"/>
         <source>Open on GitHub</source>
         <translation>在 GitHub 上打开</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_menus.cpp" line="1029"/>
+        <location filename="../gui/mainwindow_menus.cpp" line="1046"/>
         <source>Table Comments</source>
         <translation>表格注释</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_menus.cpp" line="1034"/>
+        <location filename="../gui/mainwindow_menus.cpp" line="1051"/>
         <source>Notes about this cheat table: how to use it, what each entry does, which game version it was made for. They are saved with the table.</source>
         <translation>关于此作弊表格的备注：如何使用它、每个条目的作用，以及它是为哪个游戏版本制作的。这些备注会随表格一起保存。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_menus.cpp" line="1056"/>
+        <location filename="../gui/mainwindow_menus.cpp" line="1073"/>
         <source>Cheat Table Lua Script</source>
         <translation>表格 Lua 脚本</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_menus.cpp" line="1061"/>
+        <location filename="../gui/mainwindow_menus.cpp" line="1078"/>
         <source>-- Lua that runs when this table is opened; saved with the table.</source>
         <translation>-- 打开此表格时运行的 Lua；随表格一起保存。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_menus.cpp" line="1065"/>
+        <location filename="../gui/mainwindow_menus.cpp" line="1082"/>
         <source>Execute script</source>
         <translation>执行脚本</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_menus.cpp" line="1086"/>
+        <location filename="../gui/mainwindow_menus.cpp" line="1103"/>
         <source>Script executed.</source>
         <translation>脚本已执行。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_menus.cpp" line="1087"/>
+        <location filename="../gui/mainwindow_menus.cpp" line="1104"/>
         <source>Error: %1</source>
         <translation>错误：%1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_menus.cpp" line="1111"/>
+        <location filename="../gui/mainwindow_menus.cpp" line="1128"/>
         <source>Overlay</source>
         <translation>覆盖层</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_menus.cpp" line="1114"/>
+        <location filename="../gui/mainwindow_menus.cpp" line="1131"/>
         <source>A transparent, click-through layer drawn over the whole screen, for use with a game in borderless or windowed mode.</source>
         <translation>绘制在整个屏幕上的透明、可穿透点击的图层，用于无边框或窗口模式下的游戏。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_menus.cpp" line="1119"/>
+        <location filename="../gui/mainwindow_menus.cpp" line="1136"/>
         <source>Status text (process, active cheats, frame rate)</source>
         <translation>状态文字（进程、已启用的作弊、帧率）</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_menus.cpp" line="1120"/>
+        <location filename="../gui/mainwindow_menus.cpp" line="1137"/>
         <source>Crosshair in the centre of the screen</source>
         <translation>屏幕中央的准星</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_menus.cpp" line="1121"/>
+        <location filename="../gui/mainwindow_menus.cpp" line="1138"/>
         <source>Show Overlay</source>
         <translation>显示覆盖层</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_menus.cpp" line="1123"/>
+        <location filename="../gui/mainwindow_menus.cpp" line="1140"/>
         <source>Hide Overlay</source>
         <translation>隐藏覆盖层</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_menus.cpp" line="1193"/>
+        <location filename="../gui/mainwindow_menus.cpp" line="1210"/>
         <source>%1 | Records %2/%3 active</source>
         <translation>%1 | 记录 %2/%3 已启用</translation>
     </message>

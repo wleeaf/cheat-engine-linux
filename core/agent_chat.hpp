@@ -13,8 +13,10 @@
 #include "core/json.hpp"
 
 #include <atomic>
+#include <condition_variable>
 #include <cstddef>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -48,6 +50,8 @@ struct ChatHttpResponse {
     std::string body;
     std::string error;       // transport error (no connection, timeout, ...)
     bool truncated = false;  // the reply was larger than kMaxReplyBytes
+    bool retryable = false;  // status 0 only: the connection dropped, so sending
+                             // again may work (not a timeout, DNS, TLS or Stop)
 };
 
 using ChatTransport = std::function<ChatHttpResponse(const ChatHttpRequest&)>;
@@ -79,17 +83,22 @@ public:
     void setEventSink(std::function<void(const ChatEvent&)> sink) { sink_ = std::move(sink); }
     /// Most model round trips in one turn before stopping to ask the user.
     void setMaxRounds(int rounds) { maxRounds_ = rounds; }
+    /// Tries a request again after a dropped connection (`retryable`), 408,
+    /// 429, a 5xx or 529 (overloaded): `attempts` tries in all, the first wait
+    /// `firstDelayMs` and each later one twice as long. 1 turns it off.
+    void setRetry(int attempts, double firstDelayMs) { retryAttempts_ = attempts; retryDelayMs_ = firstDelayMs; }
     /// Most tool calls run from one reply; the rest are answered with an error.
     static constexpr size_t kMaxCallsPerReply = 16;
 
     /// Run one user turn to completion (blocking). False when it stopped on an
     /// error or was cancelled; the events say why.
     bool send(const std::string& userText);
-    /// Stop the running turn after the current request or tool call.
-    void cancel() { cancelled_ = true; }
+    /// Stop the running turn after the current request or tool call. A wait
+    /// before sending a request again ends at once.
+    void cancel();
     /// Forget an earlier cancel. Call before handing a new turn to another
     /// thread, so a Stop pressed before send() starts is not lost.
-    void clearCancel() { cancelled_ = false; }
+    void clearCancel();
     /// Forget the conversation.
     void reset() { messages_.clear(); }
     size_t messageCount() const { return messages_.size(); }
@@ -104,6 +113,8 @@ public:
 
 private:
     struct ToolCall { std::string id, name; json::Value arguments; };
+    ChatHttpResponse post(const ChatHttpRequest& request);
+    bool waitUnlessCancelled(double ms);
     bool parseReply(const std::string& body, std::string& text, std::vector<ToolCall>& calls, std::string& error);
     void report(const ChatEvent& event) { if (sink_) sink_(event); }
     std::string systemPrompt() const;
@@ -117,7 +128,11 @@ private:
     std::function<void(const ChatEvent&)> sink_;
     std::vector<json::Value> messages_;   // in the provider's own message format
     int maxRounds_ = 40;
+    int retryAttempts_ = 3;
+    double retryDelayMs_ = 500;
     std::atomic<bool> cancelled_{false};
+    std::mutex cancelMutex_;               // with cancelChanged_, ends a retry wait
+    std::condition_variable cancelChanged_;
 };
 
 /// The provider's error message from an error response body, if it has one.

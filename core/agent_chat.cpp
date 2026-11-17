@@ -1,5 +1,7 @@
 #include "core/agent_chat.hpp"
 
+#include <algorithm>
+#include <chrono>
 #include <optional>
 
 namespace ce {
@@ -14,6 +16,16 @@ std::string trimSlash(std::string url) {
 }
 
 bool isAnthropic(const ChatProvider& p) { return p.kind == ChatProviderKind::Anthropic; }
+
+// Answers that usually pass if the same request is sent again a moment later.
+bool worthRetrying(const ChatHttpResponse& response) {
+    if (response.truncated) return false;
+    switch (response.status) {
+    case 0: return response.retryable;   // a timeout, DNS, TLS or closing panel is not
+    case 408: case 429: case 500: case 502: case 503: case 504: case 529: return true;
+    default: return false;
+    }
+}
 
 } // namespace
 
@@ -144,6 +156,41 @@ bool AgentChat::parseReply(const std::string& body, std::string& text, std::vect
     return true;
 }
 
+void AgentChat::cancel() {
+    {
+        std::lock_guard lock(cancelMutex_);   // so a waiting post() cannot miss it
+        cancelled_ = true;
+    }
+    cancelChanged_.notify_all();
+}
+
+void AgentChat::clearCancel() {
+    std::lock_guard lock(cancelMutex_);
+    cancelled_ = false;
+}
+
+// False when Stop was pressed before the time was up.
+bool AgentChat::waitUnlessCancelled(double ms) {
+    std::unique_lock lock(cancelMutex_);
+    return !cancelChanged_.wait_for(lock, std::chrono::duration<double, std::milli>(ms), [this] { return cancelled_.load(); });
+}
+
+ChatHttpResponse AgentChat::post(const ChatHttpRequest& request) {
+    // An overloaded or rate-limited API, a 5xx or a dropped connection usually
+    // passes, so the request is sent again after a short wait before the turn
+    // fails. Anything else, or Stop, ends it with the response as it came.
+    const int attempts = std::max(1, retryAttempts_);
+    double delayMs = retryDelayMs_;
+    ChatHttpResponse response;
+    for (int attempt = 1;; ++attempt) {
+        if (cancelled_) return response;
+        response = transport_(request);
+        if (attempt >= attempts || cancelled_ || !worthRetrying(response)) return response;
+        if (!waitUnlessCancelled(delayMs)) return response;
+        delayMs *= 2;
+    }
+}
+
 bool AgentChat::send(const std::string& userText) {
     const size_t start = messages_.size();
     std::optional<Value> beforeMerge;   // the turn the user text joined, as it was
@@ -187,7 +234,7 @@ bool AgentChat::send(const std::string& userText) {
     for (int round = 0; round < maxRounds_; ++round) {
         if (cancelled_) return fail("Stopped.");
         request.body = requestBody();
-        const ChatHttpResponse response = transport_(request);
+        const ChatHttpResponse response = post(request);
         if (cancelled_) return fail("Stopped.");
         if (response.truncated || response.body.size() > kMaxReplyBytes)
             return fail("The model's API sent a reply larger than " + std::to_string(kMaxReplyBytes >> 20) +

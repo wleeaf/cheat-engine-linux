@@ -4,10 +4,33 @@
 #include <QVBoxLayout>
 #include <QHeaderView>
 #include <QFont>
+#include <QCoreApplication>
 #include <fstream>
 #include <cctype>
 
 namespace ce::gui {
+namespace {
+
+// /proc prints a thread's state as an English word in parentheses ("S (sleeping)").
+// Translate the words Linux uses; an unknown one is shown as the kernel gave it.
+QString threadStateLabel(const std::string& state) {
+    static const char* const kStates[] = {
+        QT_TRANSLATE_NOOP("ce::gui::ThreadListWindow", "Running"),
+        QT_TRANSLATE_NOOP("ce::gui::ThreadListWindow", "Sleeping"),
+        QT_TRANSLATE_NOOP("ce::gui::ThreadListWindow", "Disk sleep"),
+        QT_TRANSLATE_NOOP("ce::gui::ThreadListWindow", "Stopped"),
+        QT_TRANSLATE_NOOP("ce::gui::ThreadListWindow", "Tracing stop"),
+        QT_TRANSLATE_NOOP("ce::gui::ThreadListWindow", "Zombie"),
+        QT_TRANSLATE_NOOP("ce::gui::ThreadListWindow", "Dead"),
+        QT_TRANSLATE_NOOP("ce::gui::ThreadListWindow", "Parked"),
+        QT_TRANSLATE_NOOP("ce::gui::ThreadListWindow", "Idle"),
+    };
+    for (const char* known : kStates)
+        if (state == known) return QCoreApplication::translate("ce::gui::ThreadListWindow", known);
+    return QString::fromStdString(state);
+}
+
+} // namespace
 
 ThreadListWindow::ThreadListWindow(ProcessHandle* proc, QWidget* parent)
     : QMainWindow(parent), proc_(proc) {
@@ -67,7 +90,7 @@ void ThreadListWindow::populate() {
                 break;
             }
         }
-        table_->setItem(i, 2, new QTableWidgetItem(QString::fromStdString(state)));
+        table_->setItem(i, 2, new QTableWidgetItem(threadStateLabel(state)));
     }
     setWindowTitle(tr("Thread List: %1 threads").arg(threads.size()));
 }

@@ -279,7 +279,7 @@ void MainWindow::buildProcessMenu(const MenuBarMenus& menus) {
             target->addRow(tr("PID:"), value(QString::number(currentPid_)));
             target->addRow(tr("Executable:"), value(modules.empty() ? QString(tr("(unknown)")) : QString::fromStdString(modules.front().path)));
             if (auto localPid = ce::localTargetPid(process_.get()))
-                target->addRow(tr("Kind:"), value(QString::fromStdString(ce::probeTarget(*localPid).summary())));
+                target->addRow(tr("Kind:"), value(targetSummaryText(ce::probeTarget(*localPid))));
             target->addRow(tr("Program:"), value(QString(tr("%1, %2-byte pointers, %3"))
                 .arg(ce::cpuArchitectureName(description.program.architecture)).arg(description.program.pointerWidth)
                 .arg(ce::byteOrderName(description.program.byteOrder))));

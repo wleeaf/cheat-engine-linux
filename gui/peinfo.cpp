@@ -32,8 +32,22 @@ constexpr int kPathRole = Qt::UserRole + 2;
 
 // IMAGE_DIRECTORY_ENTRY_* names, in order.
 const char* const kDirectoryNames[] = {
-    "Export", "Import", "Resource", "Exception", "Security", "Base relocation", "Debug", "Architecture",
-    "Global pointer", "TLS", "Load config", "Bound import", "IAT", "Delay import", "COM descriptor", "Reserved"};
+    QT_TRANSLATE_NOOP("ce::gui::PEInfoWindow", "Export"),
+    QT_TRANSLATE_NOOP("ce::gui::PEInfoWindow", "Import"),
+    QT_TRANSLATE_NOOP("ce::gui::PEInfoWindow", "Resource"),
+    QT_TRANSLATE_NOOP("ce::gui::PEInfoWindow", "Exception"),
+    QT_TRANSLATE_NOOP("ce::gui::PEInfoWindow", "Security"),
+    QT_TRANSLATE_NOOP("ce::gui::PEInfoWindow", "Base relocation"),
+    QT_TRANSLATE_NOOP("ce::gui::PEInfoWindow", "Debug"),
+    QT_TRANSLATE_NOOP("ce::gui::PEInfoWindow", "Architecture"),
+    QT_TRANSLATE_NOOP("ce::gui::PEInfoWindow", "Global pointer"),
+    QT_TRANSLATE_NOOP("ce::gui::PEInfoWindow", "TLS"),
+    QT_TRANSLATE_NOOP("ce::gui::PEInfoWindow", "Load config"),
+    QT_TRANSLATE_NOOP("ce::gui::PEInfoWindow", "Bound import"),
+    QT_TRANSLATE_NOOP("ce::gui::PEInfoWindow", "IAT"),
+    QT_TRANSLATE_NOOP("ce::gui::PEInfoWindow", "Delay import"),
+    QT_TRANSLATE_NOOP("ce::gui::PEInfoWindow", "COM descriptor"),
+    QT_TRANSLATE_NOOP("ce::gui::PEInfoWindow", "Reserved")};
 
 QString machineName(uint16_t machine) {
     switch (machine) {
@@ -212,11 +226,11 @@ void PEInfoWindow::showInfo(const QByteArray& header, const QString& path, const
     for (size_t i = 0; i < info->directories.size(); ++i) {
         const auto [rva, size] = info->directories[i];
         if (!rva && !size) continue;
-        add(directories, QString("%1: %2 (%3 bytes)").arg(QLatin1String(kDirectoryNames[i]), upperHex(rva)).arg(size));
+        add(directories, tr("%1: %2 (%3 bytes)").arg(tr(kDirectoryNames[i]), upperHex(rva)).arg(size));
     }
     auto* sections = add(root, tr("Sections"));
     for (const auto& section : info->sections)
-        add(sections, QString("%1  rva %2  size %3  raw %4+%5  %6")
+        add(sections, tr("%1  rva %2  size %3  raw %4+%5  %6")
                           .arg(QString::fromStdString(section.name), -8)
                           .arg(upperHex(section.rva), upperHex(section.virtualSize), upperHex(section.rawOffset), upperHex(section.rawSize),
                                sectionFlags(section.characteristics)));
@@ -226,7 +240,7 @@ void PEInfoWindow::showInfo(const QByteArray& header, const QString& path, const
     if (path.isEmpty() || !QFileInfo(path).isFile()) return;
     const std::string file = path.toStdString();
     for (const auto& import : parsePEImports(file))
-        imports_->addItem(QString("%1  %2  (IAT %3)")
+        imports_->addItem(tr("%1  %2  (IAT %3)")
                               .arg(QString::fromStdString(import.dll),
                                    import.name.empty() ? QString("#%1").arg(import.ordinal) : QString::fromStdString(import.name),
                                    upperHex(import.iatRva)));
@@ -236,7 +250,7 @@ void PEInfoWindow::showInfo(const QByteArray& header, const QString& path, const
                                    exported.name.empty() ? QString("#%1").arg(exported.ordinal) : QString::fromStdString(exported.name),
                                    exported.forward.empty() ? QString() : " -> " + QString::fromStdString(exported.forward)));
     for (const auto& relocation : parsePERelocations(file))
-        relocations_->addItem(QString("%1  type %2").arg(upperHex(relocation.rva, 8)).arg(relocation.type));
+        relocations_->addItem(tr("%1  type %2").arg(upperHex(relocation.rva, 8)).arg(relocation.type));
 }
 
 QString PEInfoWindow::tabText(int tab) const {

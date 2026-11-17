@@ -725,8 +725,14 @@ if(Qt6_FOUND)
         qt_add_translations(cheatengine TS_FILES translations/cheatengine_zh_CN.ts
             INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR})
         if(TARGET gui_lifecycle_smoke)
-            # The screenshots run honours CE_LANG, so the .qm has to exist.
-            add_dependencies(gui_lifecycle_smoke cheatengine_lrelease)
+            # The screenshots run honours CE_LANG, so the .qm has to exist next to
+            # the binary: the catalogue resource is embedded in the app, not in this
+            # test executable. Depend on the file, because Qt names its lrelease
+            # target after the executable on older releases and after project() on
+            # newer ones (Qt 6.11: cecore_lrelease).
+            add_custom_target(cheatengine_translations
+                DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/cheatengine_zh_CN.qm)
+            add_dependencies(gui_lifecycle_smoke cheatengine_translations)
         endif()
         message(STATUS "Translations: enabled (zh_CN)")
     else()

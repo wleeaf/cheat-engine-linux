@@ -76,7 +76,7 @@ private:
     std::string enabledScript_;
     uint64_t enableOrder_ = 0;
     void updateExecutionActions();
-    QString defaultDescription_ = "Auto Assembler script";
+    QString defaultDescription_;
     std::function<void(const QString&, const QString&)> addToTable_;
     std::function<void()> beforeExecute_;
 };

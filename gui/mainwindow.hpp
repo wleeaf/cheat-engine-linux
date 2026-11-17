@@ -48,6 +48,7 @@
 class QDockWidget;
 class QMenu;
 namespace ce { class ExpressionParser; }
+namespace ce { struct TargetProfile; }
 
 namespace ce::gui {
 
@@ -653,5 +654,10 @@ private:
     uint64_t targetRevision_ = 0;
     uint64_t replaceGeneration_ = 0;   // see IAddressList::replaceGeneration
 };
+
+/// Localized one-line description of a target ("x86-64 native process",
+/// "Wine/Proton x86-64 game", ...), for the process header, the status bar and
+/// the system info dialog. ce::TargetProfile::summary() is Qt-free and English.
+QString targetSummaryText(const ce::TargetProfile& profile);
 
 } // namespace ce::gui

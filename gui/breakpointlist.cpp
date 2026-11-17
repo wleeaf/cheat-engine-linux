@@ -18,7 +18,7 @@ BreakpointListWindow::BreakpointListWindow(BreakpointManager* mgr, QWidget* pare
     table_ = new QTableWidget;
     table_->setColumnCount(6);
     table_->setHorizontalHeaderLabels(
-        {"ID", tr("Address"), tr("Type"), tr("Action"), tr("Hits"), tr("Enabled")});
+        {tr("ID"), tr("Address"), tr("Type"), tr("Action"), tr("Hits"), tr("Enabled")});
     table_->horizontalHeader()->setStretchLastSection(true);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setProperty("monospace", true);   // font from the theme sheet

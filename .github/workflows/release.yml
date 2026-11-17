@@ -39,6 +39,29 @@ jobs:
   isa-compatibility:
     uses: ./.github/workflows/isa-compatibility.yml
 
+  # The RPM is built in a Fedora container, in parallel with the AppImage job and
+  # after the same compatibility gates. It only keeps the packages as an
+  # artifact; the publish job below uploads them so the release is created once,
+  # complete, after every gate has passed.
+  rpm:
+    needs: [version, wine-compatibility, arm64-compatibility, x32-compatibility, arm32-compatibility, isa-compatibility]
+    runs-on: ubuntu-24.04
+    container: fedora:latest
+    steps:
+      - name: Install git for the checkout
+        run: dnf -y install git
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Build the RPM and the source RPM
+        uses: ./.github/actions/build-rpm
+      - name: Keep the RPM packages with the run
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-packages
+          path: |
+            rpm-release/*
+          if-no-files-found: error
+
   appimage:
     needs: [version, wine-compatibility, arm64-compatibility, x32-compatibility, arm32-compatibility, isa-compatibility]
     runs-on: ubuntu-24.04
@@ -176,13 +199,51 @@ jobs:
           path: build/compatibility-evidence
           if-no-files-found: error
 
-      - name: Upload packages to the release
-        uses: softprops/action-gh-release@v2
+      - name: Keep the AppImage and .deb with the run
+        uses: actions/upload-artifact@v4
         with:
-          files: |
+          name: release-assets
+          path: |
             build/CheatEngine-*-x86_64.AppImage
             build/CheatEngine-*-x86_64.AppImage.sha256
             build/cheat-engine-linux_*_amd64.deb
             build/cheat-engine-linux_*_amd64.deb.sha256
-          fail_on_unmatched_files: true
+          if-no-files-found: error
+
+  # One release, created only after the compatibility gates, the AppImage/.deb
+  # build and the RPM build have finished. A failed RPM build does not stop the
+  # release: its artifact is simply skipped (the `.deb` and AppImage still ship).
+  publish:
+    needs: [version, appimage, rpm]
+    if: ${{ always() && !cancelled() && needs.version.result == 'success' && needs.appimage.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download the AppImage and .deb
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: release-assets
+
+      - name: Download the RPM packages
+        id: rpm
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: rpm-packages
+          path: rpm-packages
+
+      - name: Note the RPM result
+        if: ${{ steps.rpm.outcome == 'failure' }}
+        run: echo "::warning::The RPM build produced no artifact; publishing without the .rpm files."
+
+      - name: Upload the release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          # fail_on_unmatched_files is off because the RPM files are optional
+          # here; the .deb and the AppImage are guaranteed by the appimage job.
+          files: |
+            release-assets/*
+            rpm-packages/*.rpm
+            rpm-packages/*.sha256
+          fail_on_unmatched_files: false
           generate_release_notes: false

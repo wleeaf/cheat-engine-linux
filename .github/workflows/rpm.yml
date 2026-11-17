@@ -1,0 +1,112 @@
+# Build the RPM and source RPM in a Fedora container.
+#
+# The packaging gate: every change that touches the spec, the build script or a
+# source the catalogue embeds reruns this. release.yml uses the same composite
+# action and uploads the packages to the release directly.
+#
+# The Fedora version comes from the container image tag. fedora:latest tracks
+# the current release; pin it (for example fedora:43) if a reproducible build
+# root matters more than picking up new Qt releases.
+
+name: rpm
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packaging/rpm/**'
+      - 'packaging/build-rpm.sh'
+      - 'CMakeLists.txt'
+      - 'translations/**'
+      - '.github/actions/build-rpm/**'
+      - '.github/workflows/rpm.yml'
+  pull_request:
+    paths:
+      - 'packaging/rpm/**'
+      - 'packaging/build-rpm.sh'
+      - 'CMakeLists.txt'
+      - 'translations/**'
+      - '.github/actions/build-rpm/**'
+      - '.github/workflows/rpm.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rpm-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rpm:
+    name: Build and install the RPM
+    runs-on: ubuntu-24.04
+    container: fedora:latest
+    steps:
+      # actions/checkout downloads a tarball instead of cloning when git is
+      # missing, and the spec needs a real checkout: git archive makes the
+      # source tarball.
+      - name: Install git for the checkout
+        run: dnf -y install git
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build the RPM and the source RPM
+        uses: ./.github/actions/build-rpm
+
+      - name: Install the package and smoke-test it
+        run: |
+          set -eu
+          # The runtime and devel packages, not the debuginfo ones.
+          dnf -y install \
+            "$GITHUB_WORKSPACE"/rpm-out/cheat-engine-linux-[0-9]*.x86_64.rpm \
+            "$GITHUB_WORKSPACE"/rpm-out/cheat-engine-linux-devel-[0-9]*.x86_64.rpm
+
+          # The install script grants the ptrace capability; without it the
+          # scanner cannot read other processes under the default Yama setting.
+          getcap /usr/bin/cheatengine | grep -q cap_sys_ptrace
+          getcap /usr/bin/cescan | grep -q cap_sys_ptrace
+
+          # A binary with file capabilities cannot be executed inside an
+          # unprivileged container (exec fails with EACCES), so check that it is
+          # installed here; the check section of the spec already ran both
+          # frontends from the build tree.
+          for bin in cheatengine cescan cetutorial cegtutorial; do
+            test -x "/usr/bin/$bin"
+          done
+
+          # Desktop integration and the devel package land where expected.
+          test -f /usr/share/applications/cheatengine.desktop
+          test -f /usr/share/metainfo/io.github.wleeaf.CheatEngineLinux.metainfo.xml
+          test -f /usr/share/mime/packages/cheat-engine-linux.mime.xml
+          test -f /usr/include/cecore/core/types.hpp
+          test -f /usr/lib64/libcecore.so
+          test -f /usr/lib64/pkgconfig/cecore.pc
+          pkg-config --cflags --libs cecore
+
+          rpm -q --requires cheat-engine-linux
+          rpm -q --provides cheat-engine-linux
+
+      # The release job uploads the packages straight to the release; for every
+      # other run this artifact is how the built RPMs are downloaded from the
+      # workflow page (GitHub serves artifacts as a zip archive).
+      - name: Show the built packages in the run summary
+        run: |
+          {
+            echo "## Built packages"
+            echo ""
+            echo "| file | size | sha256 |"
+            echo "| --- | --- | --- |"
+            ( cd rpm-release && for f in *.rpm; do
+                printf "| \`%s\` | %s | \`%s\` |\n" "$f" "$(du -h "$f" | cut -f1)" "$(sha256sum "$f" | cut -d' ' -f1)"
+              done )
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-packages
+          path: |
+            rpm-release/*
+          if-no-files-found: error

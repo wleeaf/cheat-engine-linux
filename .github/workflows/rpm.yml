@@ -2,7 +2,7 @@
 #
 # The packaging gate: every change that touches the spec, the build script or a
 # source the catalogue embeds reruns this. release.yml uses the same composite
-# action and uploads the packages to the release directly.
+# action, and its publish job uploads the packages once every gate has passed.
 #
 # The Fedora version comes from the container image tag. fedora:latest tracks
 # the current release; pin it (for example fedora:43) if a reproducible build
@@ -88,9 +88,8 @@ jobs:
           rpm -q --requires cheat-engine-linux
           rpm -q --provides cheat-engine-linux
 
-      # The release job uploads the packages straight to the release; for every
-      # other run this artifact is how the built RPMs are downloaded from the
-      # workflow page (GitHub serves artifacts as a zip archive).
+      # Outside a release this artifact is how the built RPMs are downloaded
+      # from the workflow page (GitHub serves artifacts as a zip archive).
       - name: Show the built packages in the run summary
         run: |
           {

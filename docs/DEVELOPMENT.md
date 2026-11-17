@@ -288,13 +288,16 @@ alongside official CE 7.7 Linux. Today each is materially short of the claim.
     is unchanged. *Remaining:* true end-to-end behaviour against a real
     compositor's portal (not headlessly automatable — its bind-confirmation UI
     needs a live session). **[S]**
-13. **Native packaging.** ~~Flatpak~~ + AppStream + `.CT` MIME. **DONE (partly),
-    with a correction:** a `.deb` + tarball are now produced via CPack (unsandboxed,
-    apt-installable, and the release workflow attaches the `.deb`). **Flatpak was
-    dropped on purpose:** its sandbox runs the app in its own PID namespace and
-    blocks `ptrace`/memory access to other processes — which defeats a memory
-    scanner. AppImage + `.deb` (both unsandboxed) are the right fit. Still open:
-    an AppStream `metainfo.xml` and a `.CT` MIME association. **[S]**
+13. **Native packaging.** ~~Flatpak~~ + AppStream + `.CT` MIME. **DONE, with a
+    correction:** the release publishes an AppImage, a `.deb` (CPack) and an
+    `.rpm` (`packaging/rpm/cheat-engine-linux.spec`, built in a Fedora container
+    by `.github/workflows/rpm.yml`), all unsandboxed. **Flatpak was dropped on
+    purpose:** its sandbox runs the app in its own PID namespace and blocks
+    `ptrace`/memory access to other processes — which defeats a memory scanner.
+    AppImage, `.deb` and `.rpm` are the right fit. The AppStream `metainfo.xml`
+    and the `.CT` MIME association are in place in `packaging/`. Keystone is
+    bundled in the RPM (no usable Fedora package exists) and patched for current
+    CMake; `packaging/rpm/README.md` covers COPR/OBS and the pins. **[S]**
 14. **Make `libcecore` embeddable.** `CMakeLists.txt` has zero `install()`
     rules, no `SOVERSION`, no pkg-config/CMake package, no curated public
     headers — the "reusable engine" differentiator is unrealized. Add install +

@@ -15,6 +15,13 @@ reimplementation of Cheat Engine).
 
 ## Unreleased
 
+- Fedora and openSUSE packages are now built from
+  `packaging/rpm/cheat-engine-linux.spec` and attached to releases next to the
+  `.deb` and the AppImage. The RPM grants `cap_sys_ptrace` at install like the
+  `.deb` does, ships a `cheat-engine-linux-devel` subpackage for `libcecore`,
+  and bundles a patched Keystone because no distribution package provides it.
+  `.github/workflows/rpm.yml` builds and installs the package in a Fedora
+  container on every change to the packaging; see `packaging/rpm/README.md`.
 - A next scan over many results no longer fails with "A scan-result file could
   not be fully written (the disk may be full)" on CPUs with many threads
   ([#7](https://github.com/wleeaf/cheat-engine-linux/issues/7)). Each scan

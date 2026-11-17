@@ -37,8 +37,9 @@ of running the Windows build under Wine, and it opens your existing `.CT` tables
 
 ## Install
 
-Download the `.deb` or AppImage from the [latest release](../../releases/latest).
-The `.deb` grants the permission to read other processes during installation.
+Download the `.deb`, `.rpm` or AppImage from the
+[latest release](../../releases/latest). The `.deb` and `.rpm` grant the
+permission to read other processes during installation.
 
 To build from source you need a C++23 compiler (GCC 13 or newer) and Qt 6.4 or
 newer, which Ubuntu 24.04, Debian 13 and Fedora 39 or later provide:
@@ -51,6 +52,17 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 cmake --install build --prefix ~/.local    # adds Cheat Engine to your app menu
 ```
+
+On Fedora, the packages are named differently:
+
+```bash
+sudo dnf install gcc-c++ cmake ninja-build qt6-qtbase-devel qt6-qttools-devel \
+                 qt6-linguist zlib-devel elfutils-devel alsa-lib-devel \
+                 soundtouch-devel openssl-devel libX11-devel libxcb-devel
+```
+
+To build a Fedora/openSUSE RPM instead, see
+[packaging/rpm/README.md](packaging/rpm/README.md).
 
 Capstone and Keystone are downloaded and built automatically if your system
 doesn't provide them. The build also works without some of the packages

@@ -1,0 +1,39 @@
+name: Build the RPM
+description: >-
+  Build the RPM and the source RPM of Cheat Engine for Linux in the current
+  Fedora container. The packages are written to rpm-out/ in the workspace.
+
+runs:
+  using: composite
+  steps:
+    - name: Install the build dependencies
+      shell: bash
+      run: |
+        # The container's root user has to be told that the mounted checkout
+        # belongs to the runner user. curl downloads Keystone (not a
+        # BuildRequires), pkgconf-pkg-config serves the smoke test and rpmlint
+        # writes the advisory report. The spec's BuildRequires are installed by
+        # the script (dnf builddep, with a parsing fallback).
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        dnf -y install curl pkgconf-pkg-config rpmlint
+        bash packaging/build-rpm.sh --install-deps
+
+    - name: Build the packages
+      shell: bash
+      run: bash packaging/build-rpm.sh --outdir "$GITHUB_WORKSPACE/rpm-out"
+
+    # rpmbuild also writes the debuginfo/debugsource packages next to the
+    # runtime ones. They are useful for the build tree but not for a release
+    # download or artifact, so stage the release set: runtime, devel, source.
+    - name: Select the release packages
+      shell: bash
+      run: |
+        mkdir -p rpm-release
+        for rpm in \
+          rpm-out/cheat-engine-linux-[0-9]*.x86_64.rpm \
+          rpm-out/cheat-engine-linux-devel-[0-9]*.x86_64.rpm \
+          rpm-out/cheat-engine-linux-[0-9]*.src.rpm; do
+          cp -f "$rpm" "$rpm.sha256" rpm-release/
+        done
+        cp -f rpm-out/rpmlint.log rpm-release/ 2>/dev/null || true
+        ls -l rpm-release/

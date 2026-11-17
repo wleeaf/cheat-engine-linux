@@ -14,6 +14,10 @@ modules.order
 Module.symvers
 .tmp_versions/
 
+# RPM build output (packaging/build-rpm.sh)
+rpm-out/
+rpm-out-*/
+
 # Built shared / static libraries + AppImage output
 *.so
 *.a

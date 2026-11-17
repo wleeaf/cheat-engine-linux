@@ -1918,11 +1918,11 @@ void test_lua_headless_bindings() {
     }
 
     // The live-process tools (fork a child, then ptrace-SEIZE / scan it) are skipped
-    // under ASan: a pointer scan of an ASan-instrumented target walks its ~20 TB
+    // under ASan and TSan: a pointer scan of an instrumented target walks its ~20 TB
     // shadow address space and takes hours, and fork+ptrace conflicts with the
     // sanitizer runtime. The normal build job exercises these; the sanitizer job
     // only needs the pure-memory paths above (save/load, grouping) + below.
-#ifndef __SANITIZE_ADDRESS__
+#if !CE_TEST_SANITIZED
     g_lb_ents[0] = LbEntity{100, 50, 1};
     g_lb_ents[1] = LbEntity{250, 50, 2};
     g_lb_player  = &g_lb_ents[0];

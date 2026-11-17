@@ -136,8 +136,19 @@ reimplementation of Cheat Engine).
 - `LinuxDebugger::pollChildren` (library API) waits only on its own tracees,
   so it no longer takes the exit status of the caller's other children; it
   keeps a job-control stop in place and `detach` releases followed children.
+- Breakpoint conditions, which can come from a downloaded table, run in an
+  environment of their own that holds only the safe functions and the hit's
+  values.
+- A Lua form's callbacks belong to the widget they are set on and go with it;
+  OnClose still runs when the form closes.
+- Closing a list could read the half-destroyed list (undefined behaviour,
+  found by running the GUI tests under the sanitizers); the empty-list hint
+  no longer touches the view.
 - CI runs the ARM32 checks and builds the .deb and the AppImage on every
-  change instead of only at release time.
+  change instead of only at release time. The GUI tests run under ASan and
+  UBSan as well, and a new ThreadSanitizer job runs the deep tests (the
+  debugger's concurrent stops, scans and the agent session) and the table
+  tests.
 - Internal: the longest functions (the main window and Memory Viewer setup,
   the menus, the Auto Assembler's run and line parser, the agent tools, the
   ceserver command loop, the code finder, the tracer, the syscall executor,

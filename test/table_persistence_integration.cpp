@@ -1,6 +1,7 @@
 #include "core/ct_file.hpp"
 #include "core/simple_address_list.hpp"
 #include "scripting/lua_engine.hpp"
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -18,7 +19,12 @@ static bool has(const std::string& text,const char* part) {return text.find(part
 // One Cheat Engine record inside a whole table.
 static std::string ceTable(const std::string& records) {return "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<CheatTable CheatEngineTableVersion=\"45\">\n<CheatEntries>\n"+records+"</CheatEntries>\n</CheatTable>\n";}
 int main() {
+    // A watchdog for a hang; ThreadSanitizer runs this about ten times slower.
+#if defined(__SANITIZE_THREAD__)
+    alarm(300);
+#else
     alarm(20);
+#endif
     auto directory=std::filesystem::temp_directory_path()/std::string("ce-table-save-XXXXXX");
     auto name=directory.string();if(!mkdtemp(name.data()))return 2;directory=name;
     CheatTable table;table.gameName="format fixture";table.comment="UTF-8 \xc3\xa9";
@@ -141,14 +147,52 @@ int main() {
             "an address group header keeps its address and offsets, and its child its relative address");
     }
     {
-        std::string records;
-        for (int i=0;i<20000;++i)
-            records+="<CheatEntry><ID>"+std::to_string(i)+"</ID><Description>\"r\"</Description><VariableType>4 Bytes</VariableType><Address>"+std::to_string(400000+i)+"</Address></CheatEntry>\n";
-        CheatTable t;
-        const auto start=std::chrono::steady_clock::now();
-        const bool loaded=t.loadFromString(ceTable(records));
-        const auto seconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count();
-        check(loaded && t.entries.size()==20000 && seconds<5,"a table of 20000 flat records loads in linear time");
+        // Linear time: four times the records take about four times as long
+        // (a quadratic load takes sixteen). A ratio, not a time limit, so a
+        // slow machine or a sanitizer build measures the same thing. The best
+        // of three runs at each size keeps scheduling noise out.
+        auto table=[](int count) {
+            std::string records;
+            for (int i=0;i<count;++i)
+                records+="<CheatEntry><ID>"+std::to_string(i)+"</ID><Description>\"r\"</Description><VariableType>4 Bytes</VariableType><Address>"+std::to_string(400000+i)+"</Address></CheatEntry>\n";
+            return ceTable(records);
+        };
+        bool loaded=true;
+        auto fastest=[&](const std::string& text,size_t count) {
+            double best=1e9;
+            for (int run=0;run<3;++run) {
+                CheatTable t;
+                const auto start=std::chrono::steady_clock::now();
+                loaded=t.loadFromString(text) && t.entries.size()==count && loaded;
+                best=std::min(best,std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count());
+            }
+            return best;
+        };
+        const double small=fastest(table(5000),5000), large=fastest(table(20000),20000);
+        if (large>=small*10) printf("table load: 5000 records %.3fs, 20000 records %.3fs\n",small,large);
+        check(loaded && large<small*10,"a table of 20000 flat records loads in linear time");
+        // A table nested past the depth limit is refused, also in linear time:
+        // finding each record's end once rescanned the text on every step.
+        auto nested=[](int depth) {
+            std::string text="<CheatTable><CheatEntries>";
+            for (int i=0;i<depth;++i) text+="<CheatEntry><GroupHeader>1</GroupHeader><CheatEntries>";
+            for (int i=0;i<depth;++i) text+="</CheatEntries></CheatEntry>";
+            return text+"</CheatEntries></CheatTable>";
+        };
+        bool refused=true;
+        auto fastestRefusal=[&](const std::string& text) {
+            double best=1e9;
+            for (int run=0;run<3;++run) {
+                CheatTable t;
+                const auto start=std::chrono::steady_clock::now();
+                refused=!t.loadFromString(text) && refused;
+                best=std::min(best,std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count());
+            }
+            return best;
+        };
+        const double shallow=fastestRefusal(nested(5000)), deep=fastestRefusal(nested(20000));
+        if (deep>=shallow*10) printf("deep table: 5000 levels %.3fs, 20000 levels %.3fs\n",shallow,deep);
+        check(refused && deep<shallow*10,"a table nested 20000 deep is refused in linear time");
     }
     {
         CheatTable t;CheatEntry e;e.id=1;e.type=ValueType::Int32;e.addressString="[[game.exe+1C]+8]+10";t.entries={e};

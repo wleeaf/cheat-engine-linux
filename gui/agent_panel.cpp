@@ -702,7 +702,15 @@ ChatHttpResponse AgentPanel::post(const ChatHttpRequest& request) {
     }
     response.status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     response.body = reply->readAll().toStdString();
-    if (response.status == 0) response.error = stopping_ ? tr("stopped").toStdString() : reply->errorString().toStdString();
+    if (response.status == 0) {
+        response.error = stopping_ ? tr("stopped").toStdString() : reply->errorString().toStdString();
+        // Only a connection that dropped is worth sending again. The transfer
+        // timeout, DNS, TLS and Stop end the turn at once.
+        const QNetworkReply::NetworkError code = reply->error();
+        response.retryable = !stopping_ && (code == QNetworkReply::RemoteHostClosedError ||
+                                            code == QNetworkReply::TemporaryNetworkFailureError ||
+                                            code == QNetworkReply::NetworkSessionFailedError);
+    }
     delete reply;
     return response;
 }

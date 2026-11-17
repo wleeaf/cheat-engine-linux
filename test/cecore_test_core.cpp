@@ -240,6 +240,7 @@ void test_agent_chat() {
                 bodies.push_back(request.body);
                 return at < answers.size() ? answers[at++] : ce::ChatHttpResponse{500, "{}", {}};
             });
+            empty.setRetry(1, 0);   // the 529 must end the turn here
             const bool firstOk = empty.send("Look.");
             const bool overloaded = !empty.send("Again.");
             const bool resumed = empty.send("Go on.");
@@ -247,6 +248,16 @@ void test_agent_chat() {
                    firstOk && bodies.size() >= 3 && bodies[2].find("\"content\":[]") == std::string::npos ? "OK" : "FAILED");
             printf("  a failure after tools ran keeps their results: %s\n",
                    overloaded && resumed && bodies.size() == 5 && bodies[4].find("\"tool_use_id\":\"e2\"") != std::string::npos ? "OK" : "FAILED");
+        }
+        // An overloaded API is tried again within the same turn.
+        {
+            int calls = 0;
+            ce::AgentChat busy(session, {}, "k", [&](const ce::ChatHttpRequest&) {
+                return ++calls < 3 ? ce::ChatHttpResponse{529, R"({"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}})", {}}
+                                   : ce::ChatHttpResponse{200, R"({"content":[{"type":"text","text":"ok"}]})", {}};
+            });
+            busy.setRetry(3, 0);
+            printf("  an overloaded API is tried again: %s\n", busy.send("hi") && calls == 3 ? "OK" : "FAILED");
         }
         bool sawCall = false, sawText = false;
         for (const auto& e : events) {
@@ -256,7 +267,9 @@ void test_agent_chat() {
         printf("  events report tool calls and replies: %s\n", sawCall && sawText ? "OK" : "FAILED");
 
         // A refused key: an error, and the conversation is as it was.
-        ce::AgentChat refused(session, {}, "bad", [](const ce::ChatHttpRequest&) {
+        int refusedCalls = 0;
+        ce::AgentChat refused(session, {}, "bad", [&](const ce::ChatHttpRequest&) {
+            ++refusedCalls;
             return ce::ChatHttpResponse{401, R"({"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}})", {}};
         });
         std::string error;
@@ -264,10 +277,46 @@ void test_agent_chat() {
         const bool refusedSent = refused.send("hi");
         printf("  a refused key is reported: %s (%s)\n",
                !refusedSent && error.find("API key was refused") != std::string::npos &&
-               error.find("invalid x-api-key") != std::string::npos && refused.messageCount() == 0 ? "OK" : "FAILED", error.c_str());
-        ce::AgentChat offline(session, {}, "k", [](const ce::ChatHttpRequest&) { return ce::ChatHttpResponse{0, {}, "connection refused"}; });
+               error.find("invalid x-api-key") != std::string::npos && refused.messageCount() == 0 && refusedCalls == 1 ? "OK" : "FAILED", error.c_str());
+        int offlineCalls = 0;
+        ce::AgentChat offline(session, {}, "k", [&](const ce::ChatHttpRequest&) {
+            ++offlineCalls;
+            return ce::ChatHttpResponse{0, {}, "Remote host closed", false, true};
+        });
+        offline.setRetry(3, 0);
         offline.setEventSink([&](const ce::ChatEvent& e) { if (e.type == ce::ChatEvent::Type::Error) error = e.text; });
-        printf("  no connection is reported: %s\n", !offline.send("hi") && error.find("Could not reach") != std::string::npos ? "OK" : "FAILED");
+        printf("  a dropped connection is tried again, then reported: %s\n",
+               !offline.send("hi") && offlineCalls == 3 && error.find("Could not reach") != std::string::npos ? "OK" : "FAILED");
+        // A timeout (or DNS, TLS, a closing panel) is not marked retryable: one try.
+        int timeoutCalls = 0;
+        ce::AgentChat timedOut(session, {}, "k", [&](const ce::ChatHttpRequest&) {
+            ++timeoutCalls;
+            return ce::ChatHttpResponse{0, {}, "Operation canceled"};
+        });
+        timedOut.setRetry(3, 0);
+        timedOut.setEventSink([&](const ce::ChatEvent& e) { if (e.type == ce::ChatEvent::Type::Error) error = e.text; });
+        printf("  a timeout ends the turn at once: %s\n",
+               !timedOut.send("hi") && timeoutCalls == 1 && error.find("Could not reach") != std::string::npos ? "OK" : "FAILED");
+        // Stop during the wait before the next try ends the turn at once.
+        {
+            std::atomic<int> calls{0};
+            ce::AgentChat waiting(session, {}, "k", [&](const ce::ChatHttpRequest&) {
+                ++calls;
+                return ce::ChatHttpResponse{529, R"({"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}})", {}};
+            });
+            waiting.setRetry(3, 30000);
+            std::string stopError;
+            waiting.setEventSink([&](const ce::ChatEvent& e) { if (e.type == ce::ChatEvent::Type::Error) stopError = e.text; });
+            auto turn = std::async(std::launch::async, [&] { return waiting.send("hi"); });
+            while (calls == 0) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));   // into the wait
+            const auto stopped = std::chrono::steady_clock::now();
+            waiting.cancel();
+            const bool sent = turn.get();
+            const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - stopped).count();
+            printf("  Stop during the wait before a retry ends the turn: %s (%lld ms)\n",
+                   !sent && calls == 1 && took < 2000 && stopError == "Stopped." ? "OK" : "FAILED", (long long)took);
+        }
     }
 
     // OpenAI-compatible: function calls with JSON-string arguments, role "tool" results.

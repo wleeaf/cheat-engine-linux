@@ -30,9 +30,11 @@ std::expected<uint32_t, std::error_code> wineWindowsProcessId(pid_t pid);
 
 /// Commits `size` bytes in the Wine process `pid` through Wine. The block
 /// starts in [low, high], nearest to `preferred`, searched in 64 KiB steps
-/// (Windows' allocation granularity). Fails with not_supported when the
-/// helper cannot run for this target: another mount namespace (a Proton or
-/// Flatpak container), another user, or no Wine loader beside its executable.
+/// (Windows' allocation granularity). A target in a Proton (pressure-vessel)
+/// or Flatpak container gets the helper run inside its namespaces. Fails with
+/// not_supported when the helper cannot run for this target: a container we
+/// may not enter (no user namespace of the target's user, and not root),
+/// another user while not root, or no Wine loader beside its executable.
 std::expected<uintptr_t, std::error_code> wineVirtualAlloc(pid_t pid, size_t size, MemProt protection,
                                                            uintptr_t preferred, uintptr_t low, uintptr_t high);
 

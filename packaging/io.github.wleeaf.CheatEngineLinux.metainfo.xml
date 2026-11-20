@@ -41,6 +41,18 @@
   <url type="bugtracker">https://github.com/wleeaf/cheat-engine-linux/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.2.0" date="2026-11-20">
+      <description>
+        <p>The windows this port only partly had now have Cheat Engine's
+        features: Changed Addresses, Code Filter, Break and Trace with
+        conditions, the pointer scanner's options, any number of hotkeys per
+        record, and more.</p>
+        <p>Password-protected tables are encrypted, remote targets can be
+        single-stepped and traced, the interface is available in Simplified
+        Chinese, the Help window shows the whole documentation, and RPM
+        packages are published for Fedora and openSUSE.</p>
+      </description>
+    </release>
     <release version="1.1.0" date="2026-10-21">
       <description>
         <p>An AI Assistant panel and an MCP server that let a model find and

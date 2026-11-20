@@ -36,12 +36,12 @@ bash packaging/build-rpm.sh --container           # fedora:latest
 Results land in `rpm-out/`:
 
 ```
-cheat-engine-linux-1.1.0-1.fc45.x86_64.rpm
-cheat-engine-linux-1.1.0-1.fc45.x86_64.rpm.sha256
-cheat-engine-linux-devel-1.1.0-1.fc45.x86_64.rpm
-cheat-engine-linux-devel-1.1.0-1.fc45.x86_64.rpm.sha256
-cheat-engine-linux-1.1.0-1.fc45.src.rpm
-cheat-engine-linux-1.1.0-1.fc45.src.rpm.sha256
+cheat-engine-linux-1.2.0-1.fc45.x86_64.rpm
+cheat-engine-linux-1.2.0-1.fc45.x86_64.rpm.sha256
+cheat-engine-linux-devel-1.2.0-1.fc45.x86_64.rpm
+cheat-engine-linux-devel-1.2.0-1.fc45.x86_64.rpm.sha256
+cheat-engine-linux-1.2.0-1.fc45.src.rpm
+cheat-engine-linux-1.2.0-1.fc45.src.rpm.sha256
 rpmlint.log            # advisory
 ```
 

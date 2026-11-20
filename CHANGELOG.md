@@ -13,7 +13,27 @@ reimplementation of Cheat Engine).
 
 ---
 
-## Unreleased
+## v1.2.0: Cheat Engine's remaining windows, encrypted tables, remote stepping and RPM packages (2026-11-20)
+
+The windows this port only partly had (Changed Addresses, Code Filter, Break
+and Trace, the pointer scanner's options, hotkeys and more) now have Cheat
+Engine's features; password-protected tables are encrypted; remote targets
+can be single-stepped and traced; the interface is translated into Simplified
+Chinese; and Fedora/openSUSE packages ship next to the .deb and the AppImage.
+Also a Mono "Find instances", a Help window that shows the whole README, and
+fixes found by running the tests under ASan, UBSan and ThreadSanitizer.
+Details below.
+
+Behaviour changes to note when upgrading:
+
+- Password-protected tables are saved in the new encrypted CETRAINER2 format,
+  which earlier versions cannot open. Older protected tables still load.
+  Saving them needs a build with OpenSSL (`libssl-dev`).
+- Breakpoint conditions run in an environment of their own with only the safe
+  functions and the hit's values; a condition that used other globals no
+  longer sees them.
+- Building the GUI needs Qt 6.4 or newer.
+- `LinuxDebugger::pollChildren` (library API) waits only on its own tracees.
 
 - The Help window renders the whole README again and follows GitHub's Markdown
   design. Qt's own Markdown importer drops every block after a raw HTML block,
@@ -24,14 +44,21 @@ reimplementation of Cheat Engine).
   screenshot (installed next to the docs), and a copy button on every code
   block that copies exactly that block. The Lua documentation goes through the
   same renderer. Links to help pages that ship offline (the Lua reference)
-  open inside the Help window; links to pages that are not installed point at
-  the "Open on GitHub" button instead of opening a browser or a blank page, so
-  that button stays the only way to the online docs. Back and Forward buttons
-  remember the docs opened in the window. `gui_help_smoke` renders both docs
-  offscreen, checks the text on both sides of the image, that clicking a code
-  block's copy button puts the block on the clipboard, and that in-app link
-  navigation works without blanking the page and Back/Forward return to the
-  open docs.
+  open inside the Help window; other links, including repository pages that
+  are not installed, open in the browser without blanking the window. Back and
+  Forward buttons remember the docs opened in the window. `gui_help_smoke`
+  renders both docs offscreen, checks the text on both sides of the image,
+  that clicking a code block's copy button puts the block on the clipboard,
+  that in-app link navigation works without blanking the page, that web links
+  go to the browser, and that Back/Forward return to the open docs.
+- The AI Assistant sends a request again when the API is overloaded (529),
+  rate-limited (429), answers with a 5xx or drops the connection: three tries
+  in all, waiting 500 ms and then 1 s. A timeout, a refused key, any other
+  error and Stop still end the turn at once, and Stop also ends the wait.
+- The rest of the interface follows the chosen language: Qt's own dialogs and
+  menus (the `qtbase` catalogue is loaded now), the PE Info window, the
+  address list's Type column, thread states, the target summary and a few
+  status messages.
 - Fedora and openSUSE packages are now built from
   `packaging/rpm/cheat-engine-linux.spec` and attached to releases next to the
   `.deb` and the AppImage. The RPM grants `cap_sys_ptrace` at install like the
@@ -151,6 +178,9 @@ reimplementation of Cheat Engine).
 - Lua scripts that write files (streams, `writeToFile`, string lists, region
   dumps) refuse a symbolic link in the target path in the same call that opens
   it, closing the window between a check and the open.
+- Loading a cheat table with deeply nested groups takes linear time again; a
+  crafted table nested thousands of levels deep could keep loading busy for
+  minutes, and is now refused quickly.
 - Auto Assembler names an INCLUDE cycle with the files in it, instead of only
   stopping at the nesting limit.
 - The in-process exception logger logs a fault that repeats in a loop only a
@@ -170,9 +200,11 @@ reimplementation of Cheat Engine).
   no longer touches the view.
 - CI runs the ARM32 checks and builds the .deb and the AppImage on every
   change instead of only at release time. The GUI tests run under ASan and
-  UBSan as well, and a new ThreadSanitizer job runs the deep tests (the
-  debugger's concurrent stops, scans and the agent session) and the table
-  tests.
+  UBSan as well, and a new ThreadSanitizer job runs `cecore_test`, the deep
+  tests (the debugger's concurrent stops, scans and the agent session) and
+  the table tests. Libraries injected into a target (speedhack, the exception
+  logger, the audio plugin, the Vulkan layer, the Mono agent) are built
+  without sanitizer instrumentation, so they load in sanitizer builds too.
 - Internal: the longest functions (the main window and Memory Viewer setup,
   the menus, the Auto Assembler's run and line parser, the agent tools, the
   ceserver command loop, the code finder, the tracer, the syscall executor,

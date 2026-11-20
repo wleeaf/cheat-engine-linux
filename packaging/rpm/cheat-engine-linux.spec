@@ -21,7 +21,7 @@
 %global keystone_sha256 23aac537d6a596b1b9a597219fd30ee0c3a0955336b3d20df408aed432b9bcf8
 
 Name:           cheat-engine-linux
-Version:        1.1.0
+Version:        1.2.0
 Release:        1%{?dist}
 Summary:        Linux-native Cheat Engine: memory scanner, debugger and injector
 
@@ -182,6 +182,9 @@ fi
 %{_libdir}/pkgconfig/cecore.pc
 
 %changelog
+* Fri Nov 20 2026 wleeaf <wleeaf@users.noreply.github.com> - 1.2.0-1
+- Update to 1.2.0.
+
 * Mon Nov 16 2026 wleeaf <wleeaf@users.noreply.github.com> - 1.1.0-1
 - Initial RPM package: GUI, cescan, the tutorial games, the bundled Keystone
   runtime, libcecore with a devel subpackage, AppStream/MIME/desktop

@@ -2,3 +2,4 @@
 # Serial-console CRLF and upstream indentation are part of those artifacts.
 docs/compatibility-evidence/** -text -whitespace
 third_party/tinyxml2/** -text -whitespace
+third_party/md4c/** -text -whitespace

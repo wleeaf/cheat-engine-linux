@@ -1,0 +1,14 @@
+{
+  "upstream": "https://github.com/mity/md4c",
+  "version": "0.5.2+ (master after release-0.5.2)",
+  "revision": "f24870b973b803ac9408877ded880724521ca310",
+  "sha256": {
+    "md4c.h": "4efd19bf7ec270691d5b4189f496886e421768a814b5e817eb945aa85e859f18",
+    "md4c.c": "f12907817a17ae7d0f6c8d18770df839f187cad5649dd36a475dba0675c5c1f8",
+    "md4c-html.h": "e29c5e190884b2e36c5f2131b880b52ab0556091374cd3a3133145d0aa224814",
+    "md4c-html.c": "41721db6f0ecafef5228b5d730bd75e0a132c5ff390db95dfcb19705fa3e2e20",
+    "entity.h": "7d021cb683c0e7643df6ce0db51d75f8cbc313be9ec754cb4dc18c40ebaa400b",
+    "entity.c": "002005fea65257438d04d6f16c060bd73e0e0355dbb31c3f40814ab5aa75a935",
+    "LICENSE.md": "d30937367d5413e7eaa218b1640b8946ff76fd34d97152f6979fd96169d5d0fc"
+  }
+}

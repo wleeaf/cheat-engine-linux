@@ -16,6 +16,7 @@
 #include <QClipboard>
 #include <QFile>
 #include <QFileInfo>
+#include <QList>
 #include <QMouseEvent>
 #include <QTextDocument>
 #include <QTextBlock>
@@ -129,10 +130,16 @@ int main(int argc, char** argv) {
         }
     }
 
-    // Links to shipped docs open inside the view; links to docs that are not
-    // shipped keep the current page instead of going blank or starting a
-    // browser (the dialog's "Open on GitHub" button is the online way).
+    // Links to shipped docs open inside the view; a doc that is not shipped
+    // and any other web link go to the browser (recorded here) and keep the
+    // current page instead of blanking it.
+    QList<QUrl> opened;
+    view.setExternalOpener([&opened](const QUrl& url) { opened.push_back(url); });
     view.activateLink(QUrl(QStringLiteral("docs/SCRIPTING.md")));
+    if (!opened.isEmpty()) {
+        std::fprintf(stderr, "FAIL: a shipped doc was sent to the browser\n");
+        ++failures;
+    }
     for (int i = 0; i < 10; ++i) QApplication::processEvents();
     expectContains(view.document()->toPlainText(), QStringLiteral("Typed memory access"),
                    QStringLiteral("in-app navigation"));
@@ -140,6 +147,20 @@ int main(int argc, char** argv) {
     for (int i = 0; i < 10; ++i) QApplication::processEvents();
     expectContains(view.document()->toPlainText(), QStringLiteral("Typed memory access"),
                    QStringLiteral("missing doc keeps the page"));
+    if (opened.size() != 1 || !opened.front().toString().startsWith(QLatin1String(
+            "https://github.com/wleeaf/cheat-engine-linux/blob/main/docs/")) ||
+        !opened.front().toString().endsWith(QLatin1String("NOT_SHIPPED.md"))) {
+        std::fprintf(stderr, "FAIL: a doc that is not shipped did not open on GitHub (%s)\n",
+                     opened.isEmpty() ? "nothing opened" : qPrintable(opened.front().toString()));
+        ++failures;
+    }
+    view.activateLink(QUrl(QStringLiteral("https://example.org/page")));
+    if (opened.size() != 2 || opened.back() != QUrl(QStringLiteral("https://example.org/page"))) {
+        std::fprintf(stderr, "FAIL: a web link did not open in the browser\n");
+        ++failures;
+    }
+    expectContains(view.document()->toPlainText(), QStringLiteral("Typed memory access"),
+                   QStringLiteral("web link keeps the page"));
 
     // Back/Forward walk the opened docs and never lose the page.
     if (!view.canGoBack() || view.canGoForward()) {

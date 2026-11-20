@@ -39,13 +39,20 @@ public:
 
     /// Maps a repository-relative path ("docs/SCRIPTING.md") to a local file,
     /// or an empty string when that doc is not shipped offline. Links to docs
-    /// that resolve here open in this view; other links do not open a browser
-    /// (the dialog's "Open on GitHub" button is the way to the online docs).
+    /// that resolve here open in this view; other web links open in the
+    /// browser (see setExternalOpener).
     using DocResolver = std::function<QString(const QString& relPath)>;
     void setDocResolver(DocResolver resolver) { docResolver_ = std::move(resolver); }
 
+    /// Opens a web link outside the view. The default is the desktop's
+    /// browser (QDesktopServices); tests record the URL instead.
+    using ExternalOpener = std::function<void(const QUrl& url)>;
+    void setExternalOpener(ExternalOpener opener) { externalOpener_ = std::move(opener); }
+
     /// Handles a link the way clicking it does: shipped docs open in this
-    /// view, other targets show where the document lives (no browser popup).
+    /// view, http(s) and mailto links (a repository page that is not shipped
+    /// resolves to its GitHub URL) go to the external opener, and anything
+    /// else keeps the page and says where the document is.
     /// Public so the smoke test can exercise it without synthesising clicks.
     void activateLink(const QUrl& link);
 
@@ -93,6 +100,7 @@ private:
     QColor codeBackground_;
     QUrl sourceUrl_;
     DocResolver docResolver_;
+    ExternalOpener externalOpener_;
     QVector<Page> history_;
     int currentPage_ = -1;
     int hovered_ = -1;

@@ -11,6 +11,7 @@
 #include <QTextBlock>
 #include <QTextBlockFormat>
 #include <QCursor>
+#include <QDesktopServices>
 #include <QFile>
 #include <QFileInfo>
 #include <QTextCursor>
@@ -22,9 +23,10 @@
 namespace ce::gui {
 
 HelpView::HelpView(QWidget* parent) : QTextBrowser(parent) {
-    // Links are handled by setSource(): they open shipped docs in this view and
-    // never start a browser (the dialog's "Open on GitHub" button does that).
+    // Links are handled by activateLink(): shipped docs open in this view, web
+    // links in the browser.
     setOpenExternalLinks(false);
+    externalOpener_ = [](const QUrl& url) { QDesktopServices::openUrl(url); };
     setFrameShape(QFrame::NoFrame);
     document()->setDocumentMargin(16);
 
@@ -123,7 +125,15 @@ void HelpView::activateLink(const QUrl& link) {
             return;
         }
     }
-    // Not shipped offline: keep the current page and say where the document is.
+    // A web page, or a repository page that is not shipped offline (it
+    // resolved to its GitHub URL above): the browser shows it, as before.
+    const QString scheme = resolved.scheme();
+    if (externalOpener_ && (scheme == QLatin1String("https") || scheme == QLatin1String("http") ||
+                            scheme == QLatin1String("mailto"))) {
+        externalOpener_(resolved);
+        return;
+    }
+    // Nowhere to show it: keep the current page and say where the document is.
     QToolTip::showText(QCursor::pos(),
                        tr("This page is not part of the offline help. Use \"Open on GitHub\" to read it online."),
                        this);

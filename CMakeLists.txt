@@ -40,6 +40,17 @@ add_library(cecore_tinyxml2 STATIC third_party/tinyxml2/tinyxml2.cpp)
 target_include_directories(cecore_tinyxml2 PUBLIC ${CMAKE_SOURCE_DIR}/third_party/tinyxml2)
 set_target_properties(cecore_tinyxml2 PROPERTIES POSITION_INDEPENDENT_CODE ON AUTOMOC OFF)
 
+# Markdown parser for the Help windows (MIT). Qt's own Markdown importer drops
+# the blocks after raw HTML and styles code blocks poorly, so the docs go
+# through md4c and reach QTextBrowser as HTML.
+add_library(md4c STATIC
+    third_party/md4c/md4c.c
+    third_party/md4c/entity.c
+    third_party/md4c/md4c-html.c)
+target_include_directories(md4c PUBLIC ${CMAKE_SOURCE_DIR}/third_party/md4c)
+target_compile_definitions(md4c PRIVATE MD4C_USE_UTF8)
+set_target_properties(md4c PROPERTIES POSITION_INDEPENDENT_CODE ON AUTOMOC OFF)
+
 # Capstone and Keystone declare older cmake_minimum_required values that fail
 # to configure with CMake >= 3.27 unless this is set. Applies to nested
 # FetchContent CMakeLists too.
@@ -427,6 +438,9 @@ if(Qt6_FOUND)
         gui/i18n.cpp
         gui/mainwindow.cpp
         gui/mainwindow_menus.cpp
+        gui/helpmarkdown.cpp
+        gui/helpview.cpp
+        gui/helpview.hpp
         gui/aboutdialog.cpp
         gui/mainwindow_process.cpp
         gui/mainwindow_scan.cpp
@@ -482,7 +496,7 @@ if(Qt6_FOUND)
         scripting/lua_bitmap.cpp
     )
     target_include_directories(cheatengine PRIVATE ${LUA_DIR})
-    target_link_libraries(cheatengine PRIVATE cecore Qt6::Widgets Qt6::Network Qt6::DBus)
+    target_link_libraries(cheatengine PRIVATE cecore md4c Qt6::Widgets Qt6::Network Qt6::DBus)
     # Global hotkeys need X11 (XGrabKey). Optional: without it, hotkeys fall back
     # to Qt::ApplicationShortcut (only active when a cheatengine window is focused).
     find_package(X11)
@@ -536,7 +550,8 @@ if(Qt6_FOUND)
         list(REMOVE_ITEM CE_GUI_TEST_SOURCES gui/main.cpp gui/resources.qrc)
         qt_add_executable(gui_lifecycle_smoke test/gui_lifecycle_smoke.cpp ${CE_GUI_TEST_SOURCES})
         target_include_directories(gui_lifecycle_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
-        target_link_libraries(gui_lifecycle_smoke PRIVATE cecore Qt6::Widgets Qt6::Network Qt6::DBus)
+        # It compiles the whole GUI, including the md4c-based Help renderer.
+        target_link_libraries(gui_lifecycle_smoke PRIVATE cecore md4c Qt6::Widgets Qt6::Network Qt6::DBus)
 
         # The AI Assistant panel with a scripted model, and its keyring client
         # against a mock Secret Service (test/secret_store_gate.py).
@@ -657,6 +672,21 @@ if(Qt6_FOUND)
         )
         target_include_directories(gui_theme_smoke PRIVATE ${CMAKE_SOURCE_DIR})
         target_link_libraries(gui_theme_smoke PRIVATE Qt6::Widgets)
+
+        # Offscreen smoke test for the Help windows: renders the shipped
+        # Markdown and checks that Qt's importer no longer drops the blocks
+        # after README.md's <img>. `gui_help_smoke --shot out.png` also saves
+        # the page for UI review.
+        qt_add_executable(gui_help_smoke
+            test/gui_help_smoke.cpp
+            gui/helpview.cpp
+            gui/helpview.hpp
+            gui/helpmarkdown.cpp
+            gui/theme.cpp   # applyTheme() for the --shot render
+        )
+        target_include_directories(gui_help_smoke PRIVATE ${CMAKE_SOURCE_DIR})
+        target_link_libraries(gui_help_smoke PRIVATE md4c Qt6::Widgets)
+        target_compile_definitions(gui_help_smoke PRIVATE CE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
         # Offscreen render harness: grabs the real Memory Viewer to a PNG so its
         # layout + light/dark theming can be verified without a window manager.
@@ -937,6 +967,8 @@ install(FILES third_party/tinyxml2/LICENSE.txt
     DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/cheat-engine-linux/tinyxml2)
 install(FILES third_party/lua/LICENSE
     DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/cheat-engine-linux/lua)
+install(FILES third_party/md4c/LICENSE.md
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/cheat-engine-linux/md4c)
 install(FILES LICENSE
     DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/cheat-engine-linux)
 set_target_properties(cecore PROPERTIES
@@ -967,8 +999,13 @@ if(TARGET cheatengine)
     install(FILES packaging/cheat-engine-linux.mime.xml
             DESTINATION ${CMAKE_INSTALL_DATADIR}/mime/packages)
     # Help > Cheat Engine Help / Lua documentation open these offline.
-    install(FILES README.md docs/SCRIPTING.md
+    # Keep the repository-relative paths in the installed tree, so the links
+    # inside README.md ("docs/SCRIPTING.md", "docs/screenshot.png") resolve
+    # both in the Help window and in a dev build.
+    install(FILES README.md
             DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/cheat-engine-linux)
+    install(FILES docs/SCRIPTING.md docs/screenshot.png
+            DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/cheat-engine-linux/docs)
 endif()
 # Relocatable: the prefix is found from the .pc file's own directory, so an
 # install with --prefix other than the configured one still points at itself.

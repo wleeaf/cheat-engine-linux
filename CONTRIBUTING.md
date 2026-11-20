@@ -37,6 +37,10 @@ build/cescan --help                              # CLI scanner
   debugger lifecycle regressions. Included in both release and sanitizer CI.
 - `build/scan_test` — cross-process scan/write against its own child process.
 - `build/gui_debugger_smoke` — offscreen Qt smoke test for the debugger window.
+- `build/gui_help_smoke` — renders the shipped README/SCRIPTING docs the way the
+  Help windows do (md4c to HTML) and checks the text on both sides of README's
+  `<img>`, each code block's copy button and the Back/Forward history.
+  `--shot out.png [light]` saves the page for UI review.
 - **Sanitizers:** `cmake -B build-asan -DCECORE_SANITIZE=ON && cmake --build
   build-asan --target cecore_test && ./build-asan/cecore_test`. CI runs this too.
   Tests that deliberately fault or inject code are guarded by

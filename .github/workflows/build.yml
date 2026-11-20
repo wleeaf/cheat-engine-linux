@@ -157,6 +157,9 @@ jobs:
       - name: Run GUI theme smoke test (light/dark, offscreen Qt)
         run: ./build/gui_theme_smoke
 
+      - name: Run GUI Help Markdown smoke test (offscreen Qt)
+        run: ./build/gui_help_smoke
+
       - name: Run GUI guest-scan and code-finder smoke tests
         env:
           QT_QPA_PLATFORM: offscreen
@@ -397,8 +400,9 @@ jobs:
       # without ASan in ubuntu-build).
       - name: Build the GUI tests (instrumented)
         run: |
-          cmake --build build-asan -j"$(nproc)" --target gui_debugger_smoke gui_theme_smoke gui_structdissect_smoke \
-            gui_hexview_smoke gui_disasm_smoke gui_changeaddr_smoke gui_luaconsole_smoke gui_codefinder_smoke
+          cmake --build build-asan -j"$(nproc)" --target gui_debugger_smoke gui_theme_smoke gui_help_smoke \
+            gui_structdissect_smoke gui_hexview_smoke gui_disasm_smoke gui_changeaddr_smoke \
+            gui_luaconsole_smoke gui_codefinder_smoke
 
       - name: Run the GUI tests under ASan + UBSan
         timeout-minutes: 15
@@ -407,8 +411,9 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
           QT_QPA_PLATFORM: offscreen
         run: |
-          for test in gui_debugger_smoke gui_theme_smoke gui_structdissect_smoke gui_hexview_smoke \
-                      gui_disasm_smoke gui_changeaddr_smoke gui_luaconsole_smoke gui_codefinder_smoke; do
+          for test in gui_debugger_smoke gui_theme_smoke gui_help_smoke gui_structdissect_smoke \
+                      gui_hexview_smoke gui_disasm_smoke gui_changeaddr_smoke gui_luaconsole_smoke \
+                      gui_codefinder_smoke; do
             "./build-asan/$test"
           done
 

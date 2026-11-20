@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
@@ -15,12 +16,22 @@
 #include <mutex>
 #include <optional>
 #include <poll.h>
+#include <random>
+#include <sched.h>
 #include <signal.h>
 #include <string>
+#include <sys/prctl.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
+#include <thread>
 #include <unistd.h>
+#include <utility>
+
+#ifndef SYS_openat2
+#define SYS_openat2 437   // the same number on every architecture
+#endif
 
 namespace ce::os {
 namespace {
@@ -186,11 +197,74 @@ uint32_t windowsProtection(MemProt protection) {
     return read ? 0x02 : 0x01;                             // READONLY, NOACCESS
 }
 
+class Fd {
+public:
+    Fd() = default;
+    explicit Fd(int fd) : fd_(fd) {}
+    Fd(Fd&& other) noexcept : fd_(std::exchange(other.fd_, -1)) {}
+    Fd& operator=(Fd&& other) noexcept {
+        if (this != &other) { reset(); fd_ = std::exchange(other.fd_, -1); }
+        return *this;
+    }
+    ~Fd() { reset(); }
+    int get() const { return fd_; }
+    explicit operator bool() const { return fd_ >= 0; }
+    void reset() { if (fd_ >= 0) ::close(fd_); fd_ = -1; }
+private:
+    int fd_ = -1;
+};
+
+// Opens `path` as the process whose root is `root` sees it: absolute symlinks
+// and ".." stay inside that root (a container cannot point us at our files).
+Fd openInRoot(int root, const std::string& path, int flags) {
+    struct { uint64_t flags, mode, resolve; } how{static_cast<uint64_t>(flags | O_CLOEXEC), 0, 0x10 /* RESOLVE_IN_ROOT */};
+    return Fd(static_cast<int>(::syscall(SYS_openat2, root, path.c_str(), &how, sizeof(how))));
+}
+
 struct Launch {
     std::string loader;
     std::vector<std::string> environment;
     std::optional<std::pair<uid_t, gid_t>> switchTo;   // when running as root for another user
+    // A target in a Proton (pressure-vessel) or Flatpak container: its root
+    // directory, and the namespaces the helper joins, the user namespace
+    // first since it grants the right to join the others.
+    Fd root;
+    std::vector<std::pair<Fd, int>> namespaces;
+    bool joinsUser = false, joinsPid = false;
 };
+
+// A container sees other files at the same paths, runs its own wineserver
+// behind its own /tmp, and numbers processes in its own PID namespace, so the
+// helper must run in the target's namespaces. Joining a mount namespace needs
+// CAP_SYS_ADMIN over it: root has that, and so does the user who created the
+// container's user namespace (bwrap, as Flatpak and pressure-vessel use it).
+std::expected<void, std::error_code> containerFor(const std::string& proc, Launch& launch) {
+    auto same = [&](const char* kind) -> std::optional<bool> {
+        struct stat ours{}, theirs{};
+        const std::string name = std::string("/ns/") + kind;
+        if (::stat(("/proc/self" + name).c_str(), &ours) || ::stat((proc + name).c_str(), &theirs)) return std::nullopt;
+        return ours.st_ino == theirs.st_ino && ours.st_dev == theirs.st_dev;
+    };
+    const auto sameMount = same("mnt");
+    if (!sameMount) return std::unexpected(error(std::errc::not_supported));
+    if (*sameMount) return {};
+
+    struct Kind { const char* name; int type; };
+    static constexpr Kind kinds[] = {{"user", CLONE_NEWUSER}, {"mnt", CLONE_NEWNS}, {"ipc", CLONE_NEWIPC},
+                                     {"net", CLONE_NEWNET}, {"uts", CLONE_NEWUTS}, {"pid", CLONE_NEWPID}};
+    for (const auto& kind : kinds) {
+        if (same(kind.name).value_or(true)) continue;
+        Fd fd(::open((proc + "/ns/" + kind.name).c_str(), O_RDONLY | O_CLOEXEC));
+        if (!fd) return std::unexpected(error(std::errc::permission_denied));
+        launch.joinsUser |= kind.type == CLONE_NEWUSER;
+        launch.joinsPid |= kind.type == CLONE_NEWPID;
+        launch.namespaces.emplace_back(std::move(fd), kind.type);
+    }
+    if (!launch.joinsUser && ::geteuid() != 0) return std::unexpected(error(std::errc::not_supported));
+    launch.root = Fd(::open((proc + "/root").c_str(), O_PATH | O_DIRECTORY | O_CLOEXEC));
+    if (!launch.root) return std::unexpected(error(std::errc::permission_denied));
+    return {};
+}
 
 std::optional<std::pair<uid_t, gid_t>> processOwner(pid_t pid) {
     std::ifstream status("/proc/" + std::to_string(pid) + "/status");
@@ -210,14 +284,8 @@ std::optional<std::pair<uid_t, gid_t>> processOwner(pid_t pid) {
 // its environment (prefix, home, server directory) and its user.
 std::expected<Launch, std::error_code> launchFor(pid_t pid) {
     const std::string proc = "/proc/" + std::to_string(pid);
-    struct stat ours{}, theirs{};
-    if (::stat("/proc/self/ns/mnt", &ours) || ::stat((proc + "/ns/mnt").c_str(), &theirs))
-        return std::unexpected(error(std::errc::not_supported));
-    // A Proton or Flatpak container sees other files at the same paths.
-    if (ours.st_ino != theirs.st_ino || ours.st_dev != theirs.st_dev)
-        return std::unexpected(error(std::errc::not_supported));
-
     Launch launch;
+    if (auto container = containerFor(proc, launch); !container) return std::unexpected(container.error());
     auto owner = processOwner(pid);
     if (!owner) return std::unexpected(error(std::errc::no_such_process));
     if (owner->first != ::getuid()) {
@@ -231,12 +299,20 @@ std::expected<Launch, std::error_code> launchFor(pid_t pid) {
     const std::filesystem::path exe = std::filesystem::read_symlink(proc + "/exe", ec);
     if (ec) return std::unexpected(ec);
     // wine-preloader and wine64-preloader map the program; the loader beside
-    // them (wine, wine64) starts a new one.
+    // them (wine, wine64) starts a new one. In a container both paths are the
+    // container's own.
     std::string name = exe.filename().string();
     if (const std::string suffix = "-preloader"; name.size() > suffix.size() && name.ends_with(suffix))
         name.resize(name.size() - suffix.size());
     const auto loader = exe.parent_path() / name;
-    if (::access(loader.c_str(), X_OK)) return std::unexpected(error(std::errc::not_supported));
+    if (launch.root) {
+        struct stat info{};
+        const Fd file = openInRoot(launch.root.get(), loader.string(), O_PATH);
+        if (!file || ::fstat(file.get(), &info) || !S_ISREG(info.st_mode) || !(info.st_mode & 0111))
+            return std::unexpected(error(std::errc::not_supported));
+    } else if (::access(loader.c_str(), X_OK)) {
+        return std::unexpected(error(std::errc::not_supported));
+    }
     launch.loader = loader.string();
 
     std::ifstream environ(proc + "/environ", std::ios::binary);
@@ -300,18 +376,49 @@ std::expected<std::array<uint8_t, 24>, std::error_code> runHelper(pid_t pid, con
     if (!launch) return std::unexpected(launch.error());
     if (everyThreadStopped(pid)) return std::unexpected(error(std::errc::resource_unavailable_try_again));
 
-    // Readable by the target's user when the helper runs as that user.
-    std::string directory = "/tmp";
-    if (!launch->switchTo)
-        if (const char* runtime = std::getenv("XDG_RUNTIME_DIR"); runtime && *runtime == '/') directory = runtime;
-    std::string path = directory + "/ce-wine-memory-XXXXXX.exe";
-    const int file = ::mkstemps(path.data(), 4);
-    if (file < 0) return std::unexpected(std::error_code(errno, std::generic_category()));
-    struct Remove { const std::string& path; ~Remove() { ::unlink(path.c_str()); } } remove{path};
-    const bool written = ::fchmod(file, 0644) == 0 &&
-        ::write(file, image.data(), image.size()) == static_cast<ssize_t>(image.size());
-    ::close(file);
-    if (!written) return std::unexpected(error(std::errc::io_error));
+    // The image goes where the helper's Wine can read it as the target's user:
+    // our runtime directory, else /tmp; in a container, the container's /tmp
+    // (else its runtime directory or the prefix, which Wine writes anyway).
+    auto targetVariable = [&](std::string_view key) -> std::string {
+        for (const auto& entry : launch->environment)
+            if (entry.size() > key.size() + 1 && entry.starts_with(key) && entry[key.size()] == '=' && entry[key.size() + 1] == '/')
+                return entry.substr(key.size() + 1);
+        return {};
+    };
+    std::vector<std::string> directories;
+    if (launch->root) {
+        directories = {"/tmp", targetVariable("XDG_RUNTIME_DIR"), targetVariable("WINEPREFIX")};
+    } else {
+        if (const char* runtime = std::getenv("XDG_RUNTIME_DIR"); !launch->switchTo && runtime && *runtime == '/')
+            directories.emplace_back(runtime);
+        directories.emplace_back("/tmp");
+    }
+    Fd directory;
+    std::string name, path;
+    for (const auto& candidate : directories) {
+        if (candidate.empty()) continue;
+        Fd folder = launch->root ? openInRoot(launch->root.get(), candidate, O_PATH | O_DIRECTORY)
+                                 : Fd(::open(candidate.c_str(), O_PATH | O_DIRECTORY | O_CLOEXEC));
+        if (!folder) continue;
+        std::random_device random;
+        char unique[48];
+        std::snprintf(unique, sizeof(unique), "ce-wine-memory-%08x%08x.exe", random(), random());
+        Fd file(::openat(folder.get(), unique, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644));
+        if (!file) continue;
+        const bool written = ::fchmod(file.get(), 0644) == 0 &&
+            ::write(file.get(), image.data(), image.size()) == static_cast<ssize_t>(image.size());
+        if (!written) {
+            ::unlinkat(folder.get(), unique, 0);
+            return std::unexpected(error(std::errc::io_error));
+        }
+        directory = std::move(folder);
+        name = unique;
+        path = candidate + (candidate.ends_with('/') ? "" : "/") + name;
+        break;
+    }
+    if (!directory) return std::unexpected(error(std::errc::permission_denied));
+    struct Remove { const Fd& directory; const std::string& name; ~Remove() { ::unlinkat(directory.get(), name.c_str(), 0); } }
+        remove{directory, name};
 
     // Everything the child needs is built before fork: after it, only
     // async-signal-safe calls.
@@ -322,13 +429,46 @@ std::expected<std::array<uint8_t, 24>, std::error_code> runHelper(pid_t pid, con
     int output[2];
     if (::pipe2(output, O_CLOEXEC)) return std::unexpected(std::error_code(errno, std::generic_category()));
     const int null = ::open("/dev/null", O_RDWR | O_CLOEXEC);
+    // Exit codes of the child before it starts Wine.
+    constexpr int kSwitchFailed = 126, kJoinFailed = 125, kForkFailed = 124;
     const pid_t child = ::fork();
     if (child == 0) {
         if (null >= 0) { ::dup2(null, STDIN_FILENO); ::dup2(null, STDERR_FILENO); }
         ::dup2(output[1], STDOUT_FILENO);
-        if (launch->switchTo &&
-            (::setgroups(0, nullptr) || ::setgid(launch->switchTo->second) || ::setuid(launch->switchTo->first)))
-            ::_exit(126);
+        auto switchUser = [&] {
+            return !launch->switchTo ||
+                (!::setgroups(0, nullptr) && !::setgid(launch->switchTo->second) && !::setuid(launch->switchTo->first));
+        };
+        // The target's user owns its user namespace and may join it; without
+        // one, only root can enter the container, so switch after.
+        if (launch->joinsUser && !switchUser()) ::_exit(kSwitchFailed);
+        // The user, mount and PID namespaces are what Wine needs (files, the
+        // server socket, process ids); the others are joined when allowed.
+        for (const auto& [fd, type] : launch->namespaces)
+            if (::setns(fd.get(), type) && (type == CLONE_NEWUSER || type == CLONE_NEWNS || type == CLONE_NEWPID))
+                ::_exit(kJoinFailed);
+        if (!launch->joinsUser && !switchUser()) ::_exit(kSwitchFailed);
+        if (launch->root && ::chdir("/")) ::_exit(kJoinFailed);
+        if (launch->joinsPid) {
+            // Only children enter the PID namespace. _Fork runs no fork
+            // handlers (other threads of ours may hold their locks), and the
+            // Wine process dies with this one when we give up waiting.
+#if defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 34))
+            const pid_t inner = ::_Fork();
+#else
+            const pid_t inner = ::fork();
+#endif
+            if (inner < 0) ::_exit(kForkFailed);
+            if (inner == 0) {
+                ::prctl(PR_SET_PDEATHSIG, SIGKILL);
+                ::execve(argv[0], argv.data(), envp.data());
+                ::_exit(127);
+            }
+            ::close(STDOUT_FILENO);
+            int status = 0;
+            while (::waitpid(inner, &status, 0) < 0 && errno == EINTR) {}
+            ::_exit(WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status));
+        }
         ::execve(argv[0], argv.data(), envp.data());
         ::_exit(127);
     }
@@ -355,14 +495,24 @@ std::expected<std::array<uint8_t, 24>, std::error_code> runHelper(pid_t pid, con
         bytes.append(chunk, static_cast<size_t>(n));
     }
     ::close(output[0]);
+    // The output closes as the helper exits; give it a moment to be reaped
+    // so a failure before Wine started can be told apart.
     int status = 0;
-    if (::waitpid(child, &status, WNOHANG) == 0) {
+    pid_t reaped = 0;
+    for (int attempt = 0; attempt < 50 && (reaped = ::waitpid(child, &status, WNOHANG)) == 0; ++attempt)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    if (reaped == 0) {
         ::kill(child, SIGKILL);
         ::waitpid(child, &status, 0);
     }
     const auto magic = bytes.find(std::string_view(kResultMagic, sizeof(kResultMagic)));
     if (magic == std::string::npos || bytes.size() - magic < 24) {
-        ce::log::warn(ce::log::Cat::Memory, "Wine memory helper for pid {} gave no result (status {:#x})", pid, status);
+        const int code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+        ce::log::warn(ce::log::Cat::Memory, "Wine memory helper for pid {} gave no result (status {:#x}{})", pid, status,
+                      code == kJoinFailed ? ", could not enter the target's container" :
+                      code == kSwitchFailed ? ", could not switch to the target's user" : "");
+        if (code == kJoinFailed) return std::unexpected(error(std::errc::not_supported));
+        if (code == kSwitchFailed) return std::unexpected(error(std::errc::permission_denied));
         return std::unexpected(error(std::errc::io_error));
     }
     std::array<uint8_t, 24> result{};

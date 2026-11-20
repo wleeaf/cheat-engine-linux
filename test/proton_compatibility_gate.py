@@ -124,8 +124,15 @@ def run_proton(build, proton, work, fixtures, report, client, in_runtime, runtim
             print(stdout, end="", flush=True)
             if stderr:
                 print(stderr, end="", flush=True)
+            # Wine's own allocation helper runs where the program runs: inside
+            # the container when Proton is in the Steam Runtime (issue #9). A
+            # legacy 32-bit Unix loader never uses it.
+            namespace = "container" if in_runtime else "shared"
+            helper_widths = (8,) if legacy else (8, 4)
             if (code != 0 or "FAILED:" in stdout or "0 failed Wine integration checks\n" not in stdout or
-                    any(f"WINE_BUSY_RESULT=PASSED programWidth={width}\n" not in stdout for width in (8, 4))):
+                    any(f"WINE_BUSY_RESULT=PASSED programWidth={width}\n" not in stdout for width in (8, 4)) or
+                    any(f"WINE_HELPER_RESULT=PASSED programWidth={width} namespace={namespace}\n" not in stdout
+                        for width in helper_widths)):
                 raise RuntimeError(f"{proton.name} compatibility checks failed")
             entry["checks"] = sum(line.startswith("OK: ") for line in stdout.splitlines())
             # The same programs through the user-facing CLI, Lua and (when

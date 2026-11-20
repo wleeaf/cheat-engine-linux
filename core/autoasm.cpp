@@ -2411,8 +2411,8 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
         if (proc.targetDescription().runtime == TargetRuntime::Wine)
             nearHint += " This Wine version reserves the address space around the program's code for its own "
                         "allocations, and asking Wine for memory there failed. Wine runs that request on one of "
-                        "the program's own threads, so the program must not be stopped, and it works only for a "
-                        "program in this user's own mount namespace, not inside a Proton or Flatpak container "
+                        "the program's own threads, so the program must not be stopped. For a program inside a "
+                        "Proton or Flatpak container, Cheat Engine must run as the user who started it, or as root "
                         "(https://github.com/wleeaf/cheat-engine-linux/issues/9).";
     };
     auto rollback = [&]() -> AutoAsmResult {

@@ -1,6 +1,7 @@
 #include "platform/linux/linux_process.hpp"
 #include "platform/linux/ptrace_wrapper.hpp"
 #include "platform/linux/target_syscall.hpp"
+#include "platform/linux/wine_memory.hpp"
 #include "arch/target_arch.hpp"
 #include "core/autoasm.hpp"
 #include "core/expression.hpp"
@@ -31,6 +32,7 @@
 #include <sys/ptrace.h>
 #include <sys/uio.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <thread>
 #include <unistd.h>
 
@@ -506,6 +508,29 @@ static void exercise(const char* wine, const char* path, unsigned width, bool re
           restoredContext->instructionPointer()>=code-0x300 && restoredContext->instructionPointer()<code &&
           stableRegisters(*restoredContext)==stableRegisters(*context),
           "all Windows general registers, segments and execution mode survive native memory operations exactly");
+    // Wine commits a block for us itself (issue #9), also when the program
+    // runs in a container (Proton inside the Steam Runtime): the helper then
+    // starts inside the target's namespaces. Wine interrupts a thread of the
+    // target to do it, so this runs after the register check above.
+    if (description.host.architecture==CpuArchitecture::X86_64) {
+        struct stat ours{},theirs{};
+        const bool contained=::stat("/proc/self/ns/mnt",&ours)==0 &&
+            ::stat(("/proc/"+std::to_string(pid)+"/ns/mnt").c_str(),&theirs)==0 && ours.st_ino!=theirs.st_ino;
+        const uintptr_t high=width==4 ? UINT32_MAX-page : UINT64_C(0x7ffffffe0000);
+        auto block=os::wineVirtualAlloc(pid,page,MemProt::ReadWrite,0,0x10000,high);
+        if (!block) printf("Wine helper allocation error: %s\n",block.error().message().c_str());
+        uint32_t sentinel=0x5eed1234,observed=0;
+        iovec local{&observed,sizeof(observed)},remote{reinterpret_cast<void*>(block ? *block : 0),sizeof(observed)};
+        bool usable=block && *block<=high && process.write(*block,&sentinel,sizeof(sentinel)) &&
+            process_vm_readv(pid,&local,1,&remote,1,0)==sizeof(observed) && observed==sentinel;
+        check(usable,"Wine's own VirtualAllocEx commits a block in the busy target through the helper");
+        auto released=block ? os::wineVirtualFree(pid,*block) : Result<void>(std::unexpected(block.error()));
+        if (block && !released) printf("Wine helper release error: %s\n",released.error().message().c_str());
+        check(released && process_vm_readv(pid,&local,1,&remote,1,0)<0,
+              "Wine's own VirtualFreeEx releases the helper's block");
+        printf("WINE_HELPER_RESULT=%s programWidth=%u namespace=%s\n",usable && released ? "PASSED" : "FAILED",width,
+               contained ? "container" : "shared");
+    }
     uint32_t zero=0;
     auto cleared=process.write(busyFlag,&zero,sizeof(zero));
     check(cleared && *cleared==sizeof(zero) && fixture.value('r',31415933),

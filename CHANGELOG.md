@@ -13,6 +13,22 @@ reimplementation of Cheat Engine).
 
 ---
 
+## Unreleased
+
+### Fixes
+
+- Memory that Wine commits for a hook (see v1.2.0 and
+  [#9](https://github.com/wleeaf/cheat-engine-linux/issues/9)) now also works
+  for a game inside a Proton (Steam Runtime) or Flatpak container. The small
+  Windows program that asks Wine for the block runs inside the game's
+  container: it joins the game's user, mount and process namespaces, so it
+  reaches the container's own Wine, prefix and wineserver, and its file is
+  written to the container's `/tmp` without following any link out of it.
+  Entering the container needs the user who started it (Steam and Flatpak run
+  games as you) or root.
+
+---
+
 ## v1.2.0: Cheat Engine's remaining windows, encrypted tables, remote stepping and RPM packages (2026-11-20)
 
 The windows this port only partly had (Changed Addresses, Code Filter, Break

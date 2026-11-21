@@ -31,6 +31,7 @@ struct CheatEntry {
     std::string color;          // Display color as RGB hex ("RRGGBB" or "#rrggbb"); .CT files hold CE's BGR
     std::string dropdownList;   // Choices, one "value:label" per line as CE writes them (older tables: ';')
     std::string dropdownAttributes; // Attributes of CE's <DropDownList> (DisplayValueAsItem="1" ...), kept as written
+    std::string entryAttributes;    // Attributes of the record's own <CheatEntry> (NoCheckbox="1", NoScriptTag="1"), kept as written
     std::string hotkeyKeys;     // Hotkey binding
     std::string increaseHotkeyKeys;
     std::string decreaseHotkeyKeys;

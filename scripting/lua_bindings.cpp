@@ -638,6 +638,9 @@ static void registerTableToolBindings(lua_State* L) {
     lua_register(L, "playSound", l_playSound);
     lua_register(L, "getManagedRuntimes", l_getManagedRuntimes);
     lua_register(L, "monoDissect", l_monoDissect);
+    lua_register(L, "mono_initialize", l_monoInitialize);
+    lua_register(L, "LaunchMonoDataCollector", l_launchMonoDataCollector);
+    lua_register(L, "beep", l_beep);
     lua_register(L, "findMonoFunction", l_findMonoFunction);
     lua_register(L, "findMonoInstances", l_findMonoInstances);
     lua_register(L, "executeCode", l_executeCode);

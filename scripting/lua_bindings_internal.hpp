@@ -231,6 +231,9 @@ int l_generateTrainer(lua_State* L);
 // lua_bindings_runtimes.cpp
 int l_getManagedRuntimes(lua_State* L);
 int l_monoDissect(lua_State* L);
+int l_monoInitialize(lua_State* L);
+int l_launchMonoDataCollector(lua_State* L);
+int l_beep(lua_State* L);
 int l_createSimpleHook(lua_State* L);
 int l_removeSimpleHook(lua_State* L);
 int l_findMonoFunction(lua_State* L);

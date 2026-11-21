@@ -8,6 +8,9 @@
 #include "platform/linux/ceserver_client.hpp"   // complete type for ownedCeserverClient_
 
 extern "C" {
+#include <set>
+#include <cctype>
+#include <string>
 #include <lua.h>
 #include <lauxlib.h>
 #include <lualib.h>
@@ -357,6 +360,51 @@ void LuaEngine::registerBindings() {
 
     // Register extended bindings (readByte, readString, disassemble, autoAssemble, etc.)
     registerExtendedBindings(L_);
+    addCheatEngineCaseAliases(L_);
+}
+
+void addCheatEngineCaseAliases(lua_State* L) {
+    // Lua's own functions keep their one name, as in Cheat Engine.
+    static const std::set<std::string, std::less<>> baseLibrary = {
+        "assert", "collectgarbage", "dofile", "error", "getmetatable", "ipairs", "load", "loadfile", "next",
+        "pairs", "pcall", "print", "rawequal", "rawget", "rawlen", "rawset", "require", "select",
+        "setmetatable", "tonumber", "tostring", "type", "xpcall"};
+    static constexpr const char* kAliases = "ce_case_aliases";   // alias name -> the function it was given
+    if (lua_getfield(L, LUA_REGISTRYINDEX, kAliases) != LUA_TTABLE) {
+        lua_pop(L, 1);
+        lua_newtable(L);
+        lua_pushvalue(L, -1);
+        lua_setfield(L, LUA_REGISTRYINDEX, kAliases);
+    }
+    const int aliases = lua_gettop(L);
+    lua_pushglobaltable(L);
+    const int globals = lua_gettop(L);
+    std::vector<std::string> names;
+    for (lua_pushnil(L); lua_next(L, globals); lua_pop(L, 1))
+        if (lua_type(L, -2) == LUA_TSTRING && lua_iscfunction(L, -1)) names.emplace_back(lua_tostring(L, -2));
+    for (const auto& name : names) {
+        const unsigned char first = static_cast<unsigned char>(name.front());
+        if (!std::isalpha(first) || baseLibrary.contains(name)) continue;
+        // An alias is not a source of further aliases.
+        if (lua_getfield(L, aliases, name.c_str()) != LUA_TNIL) { lua_pop(L, 1); continue; }
+        lua_pop(L, 1);
+        std::string other = name;
+        other.front() = static_cast<char>(first ^ 0x20);
+        lua_pushstring(L, other.c_str());
+        lua_rawget(L, globals);                       // what the other name holds now
+        lua_getfield(L, aliases, other.c_str());      // what this gave it before, if anything
+        const bool free = lua_isnil(L, -2) || (!lua_isnil(L, -1) && lua_rawequal(L, -1, -2));
+        lua_pop(L, 2);
+        if (!free) continue;
+        lua_pushstring(L, name.c_str());
+        lua_rawget(L, globals);
+        lua_pushvalue(L, -1);
+        lua_setfield(L, aliases, other.c_str());
+        lua_pushstring(L, other.c_str());
+        lua_insert(L, -2);
+        lua_rawset(L, globals);
+    }
+    lua_pop(L, 2);
 }
 
 std::string LuaEngine::execute(const std::string& code) {

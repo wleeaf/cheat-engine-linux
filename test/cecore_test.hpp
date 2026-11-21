@@ -313,6 +313,7 @@ void test_distributed_pointer_scan();
 void test_pointer_scan_shard_through_static();
 void test_pointer_scan_persistence();
 void test_ct_table_luascript_after_entries();
+void test_ct_entry_tag_attributes();
 void test_ct_json_pointer_roundtrip();
 void test_il2cpp_pe_header_bounds();
 void test_dwarf_symbols();

@@ -600,6 +600,40 @@ void test_lua_process_bindings(pid_t pid) {
     auto err = lua.execute(script);
 
     printf("  openProcess/getProcessList: %s\n", err.empty() ? "OK" : "FAILED");
+
+    // Tables written for Cheat Engine (issue #15) call functions with either
+    // case of the first letter, find a Windows game by its .exe name (Wine
+    // runs it as wine64-preloader, with the Windows path in argv[0]), and
+    // start Cheat Engine's Mono collector before their own scripts.
+    // A name of this run's own: another program may have the same .exe name.
+    const std::string exeName = "CeLookup" + std::to_string(getpid()) + ".exe";
+    const std::string windowsPath = "Z:\\games\\Some Game\\" + exeName;
+    const pid_t game = fork();
+    if (game == 0) {
+        execl("/bin/sleep", windowsPath.c_str(), "30", static_cast<char*>(nullptr));
+        _exit(127);
+    }
+    const std::string gameText = std::to_string(game);
+    for (int i = 0; i < 200; ++i) {
+        std::ifstream cmdline("/proc/" + gameText + "/cmdline");
+        std::string argv0;
+        if (std::getline(cmdline, argv0, '\0') && argv0.ends_with(".exe")) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    const auto compat = lua.execute(
+        "assert(OpenProcess == openProcess and ShellExecute == shellExecute and Beep == beep)\n"
+        "assert(GetProcessIDFromProcessName == getProcessIDFromProcessName)\n"
+        "assert(Print == nil and Pairs == nil and Dofile == nil and Loadfile == nil)\n"
+        "assert(getProcessIDFromProcessName(string.lower('" + exeName + "')) == " + gameText + ")\n"
+        "assert(getProcessIDFromProcessName('Some Game') == nil)\n"
+        "assert(OpenProcess('" + exeName + "') == " + gameText + ")\n"
+        "assert(mono_initialize() == nil and Mono_initialize == mono_initialize)\n"
+        "assert(LaunchMonoDataCollector() == 0)\n"   // sleep has no Mono or IL2CPP runtime
+        "beep()\n");
+    kill(game, SIGKILL);
+    waitpid(game, nullptr, 0);
+    if (!compat.empty()) printf("  Lua error: %s\n", compat.c_str());
+    printf("  Cheat Engine name aliases, .exe lookup and Mono start-up: %s\n", compat.empty() ? "OK" : "FAILED");
 }
 
 // enumerateFunctions / buildCallGraph Lua bindings over the live target's main

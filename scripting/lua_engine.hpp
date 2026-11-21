@@ -168,4 +168,11 @@ private:
 /// Register extended CE API bindings (defined in lua_bindings.cpp)
 void registerExtendedBindings(lua_State* L);
 
+/// Cheat Engine registers every Lua function under both cases of its first
+/// letter (openProcess and OpenProcess, shellExecute and ShellExecute), and
+/// tables call either. Gives each engine function its other name, unless that
+/// name holds something else. Run again after more functions are registered
+/// (the GUI's): an alias this made follows its function when it is replaced.
+void addCheatEngineCaseAliases(lua_State* L);
+
 } // namespace ce

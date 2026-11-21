@@ -866,6 +866,55 @@ void test_ct_table_luascript_after_entries() {
     printf("  table LuaScript not shadowed by a sibling record: %s (got '%s')\n",
            nestedOk ? "OK" : "FAILED", t2.luaScript.c_str());
 }
+void test_ct_entry_tag_attributes() {
+    printf("\n── Test: records whose <CheatEntry> tag has attributes (issue #15) ──\n");
+    // Cheat Engine marks some records on the tag itself: <CheatEntry
+    // NoCheckbox="1"> for a label, <CheatEntry NoScriptTag="1">. A loader that
+    // looked only for "<CheatEntry>" dropped such a record and promoted its
+    // children to the top level, so a table whose first record is its
+    // "Initialize" script lost that script and every group's nesting.
+    const char* xml =
+        "<?xml version=\"1.0\"?>\n<CheatTable>\n<CheatEntries>\n"
+        "<CheatEntry NoScriptTag=\"1\"><ID>3</ID><Description>\"Initialize\"</Description>"
+        "<VariableType>Auto Assembler Script</VariableType><AssemblerScript>[ENABLE]\n[DISABLE]\n</AssemblerScript>"
+        "<CheatEntries><CheatEntry><ID>10</ID><Description>\"Group\"</Description><GroupHeader>1</GroupHeader>"
+        "<CheatEntries><CheatEntry><ID>11</ID><Description>\"Value\"</Description>"
+        "<VariableType>4 Bytes</VariableType><Address>400000</Address></CheatEntry>"
+        "<CheatEntry NoCheckbox=\"1\"><ID>12</ID><Description>\"Note\"</Description><GroupHeader>1</GroupHeader></CheatEntry>"
+        "</CheatEntries></CheatEntry></CheatEntries></CheatEntry>\n"
+        "<CheatEntry NoCheckbox=\"1\"><ID>4</ID><Description>\"\"</Description><GroupHeader>1</GroupHeader></CheatEntry>\n"
+        "<CheatEntry\n  NoScriptTag=\"1\"><ID>5</ID><Description>\"Link\"</Description>"
+        "<VariableType>Auto Assembler Script</VariableType><AssemblerScript>[ENABLE]\n[DISABLE]\n</AssemblerScript></CheatEntry>\n"
+        "</CheatEntries>\n</CheatTable>\n";
+    auto parentOf = [](const ce::CheatTable& table, int id) {
+        for (const auto& e : table.entries) if (e.id == id) return e.parentId;
+        return -2;
+    };
+    auto attributesOf = [](const ce::CheatTable& table, int id) {
+        for (const auto& e : table.entries) if (e.id == id) return e.entryAttributes;
+        return std::string("(missing)");
+    };
+    auto check = [&](const ce::CheatTable& t) {
+        return t.entries.size() == 6 && parentOf(t, 3) == -1 && parentOf(t, 10) == 3 && parentOf(t, 11) == 10 &&
+            parentOf(t, 12) == 10 && parentOf(t, 4) == -1 && parentOf(t, 5) == -1 &&
+            attributesOf(t, 3) == "NoScriptTag=\"1\"" && attributesOf(t, 12) == "NoCheckbox=\"1\"" &&
+            attributesOf(t, 5) == "NoScriptTag=\"1\"" && attributesOf(t, 11).empty();
+    };
+    ce::CheatTable t;
+    const bool loaded = t.loadFromString(xml) && check(t);
+    printf("  records with tag attributes load with their children nested: %s (%zu records)\n",
+           loaded ? "OK" : "FAILED", t.entries.size());
+    auto path = (std::filesystem::temp_directory_path() / "ce_entry_attributes.ct").string();
+    ce::CheatTable again;
+    std::string saved;
+    const bool written = t.save(path);
+    if (std::ifstream in(path); in) saved.assign(std::istreambuf_iterator<char>(in), {});
+    const bool roundTrip = written && again.load(path) && check(again) &&
+        saved.find("<CheatEntry NoScriptTag=\"1\">") != std::string::npos &&
+        saved.find("<CheatEntry NoCheckbox=\"1\">") != std::string::npos;
+    std::filesystem::remove(path);
+    printf("  a save writes the tag attributes back: %s\n", roundTrip ? "OK" : "FAILED");
+}
 void test_ct_json_pointer_roundtrip() {
     printf("\n── Test: JSON round-trip preserves pointer chain / length ──\n");
     // saveJson/loadJson (also the .CETRAINER path) used to drop these, so a

@@ -89,6 +89,27 @@ extern "C" {
 #include "scripting/lua_bindings_internal.hpp"
 namespace ce::lua_detail {
 
+// Cheat Engine's mono_initialize() sets up its injected Mono data collector
+// (menus, process-open hooks). Mono and IL2CPP support is built in here
+// (monoDissect, getIl2CppClasses, ...), so there is nothing to set up; tables
+// call it before their own scripts.
+int l_monoInitialize(lua_State*) { return 0; }
+
+// LaunchMonoDataCollector() -> the base address of the target's Mono or IL2CPP
+// runtime module, or 0 without one (Cheat Engine returns the runtime's base
+// once its collector runs, and 0 on failure). Nothing is injected: the
+// collector's mono_* query functions are not provided, and monoDissect and
+// the getIl2Cpp* functions read that information instead.
+int l_launchMonoDataCollector(lua_State* L) {
+    auto* p = getProc(L);
+    auto runtime = p ? ce::managedRuntimeModule(*p) : std::nullopt;
+    lua_pushinteger(L, runtime ? static_cast<lua_Integer>(runtime->base) : 0);
+    return 1;
+}
+
+// beep(): the GUI sounds the desktop's bell; without one there is nothing to do.
+int l_beep(lua_State*) { return 0; }
+
 int l_getManagedRuntimes(lua_State* L) {
     auto* p = getProc(L);
     lua_newtable(L);

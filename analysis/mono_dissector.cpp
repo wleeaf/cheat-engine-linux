@@ -100,10 +100,15 @@ MonoDissection parseMonoDump(const std::string& text) {
     return out;
 }
 
-ManagedKind detectManagedKind(ProcessHandle& proc) {
+namespace {
+struct RuntimeModules {
+    std::optional<ModuleInfo> mono, il2cpp;
+};
+
+RuntimeModules runtimeModules(ProcessHandle& proc) {
     // Mono ships libmono*/mono-2.0; IL2CPP builds put the AOT code in
     // GameAssembly.so (Unity/Linux) and carry global-metadata.dat + il2cpp_* code.
-    bool mono = false, il2cpp = false;
+    RuntimeModules found;
     for (const auto& m : proc.modules()) {
         std::string n = m.name;
         for (auto& ch : n) ch = static_cast<char>(std::tolower((unsigned char)ch));
@@ -111,15 +116,26 @@ ManagedKind detectManagedKind(ProcessHandle& proc) {
         // libmonobdwgc-2.0 (Linux), mono-2.0-bdwgc.dll / mono.dll (Unity under
         // Proton), or a mono / mono-sgen executable. Not any name containing
         // "mono": fonts such as DejaVuSansMono.ttf are mapped by most games.
-        if (n.starts_with("libmono-2.0") || n.starts_with("libmonosgen") || n.starts_with("libmonobdwgc") ||
-            n.starts_with("mono-2.0") || n == "mono.dll" || n == "mono" || n.starts_with("mono-sgen"))
-            mono = true;
-        if (n.find("gameassembly") != std::string::npos || n.find("il2cpp") != std::string::npos)
-            il2cpp = true;
+        if (!found.mono && (n.starts_with("libmono-2.0") || n.starts_with("libmonosgen") || n.starts_with("libmonobdwgc") ||
+                            n.starts_with("mono-2.0") || n == "mono.dll" || n == "mono" || n.starts_with("mono-sgen")))
+            found.mono = m;
+        if (!found.il2cpp && (n.find("gameassembly") != std::string::npos || n.find("il2cpp") != std::string::npos))
+            found.il2cpp = m;
     }
-    if (mono) return ManagedKind::Mono;
-    if (il2cpp) return ManagedKind::Il2Cpp;
+    return found;
+}
+} // namespace
+
+ManagedKind detectManagedKind(ProcessHandle& proc) {
+    const auto found = runtimeModules(proc);
+    if (found.mono) return ManagedKind::Mono;
+    if (found.il2cpp) return ManagedKind::Il2Cpp;
     return ManagedKind::None;
+}
+
+std::optional<ModuleInfo> managedRuntimeModule(ProcessHandle& proc) {
+    auto found = runtimeModules(proc);
+    return found.mono ? found.mono : found.il2cpp;
 }
 
 std::string findMonoAgentPath() { return findCompanionLibrary("libcecore_mono_agent.so"); }

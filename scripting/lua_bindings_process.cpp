@@ -109,13 +109,33 @@ static std::string readProcessName(const std::filesystem::path& procDir) {
     return name;
 }
 
+// A Windows program under Wine or Proton runs as wine64-preloader with a
+// truncated comm ("DaveTheDiver.ex"); Wine puts the program's Windows path in
+// argv[0] ("Z:\\games\\DaveTheDiver.exe"). Only the program itself has it
+// there: Proton's launcher, steam.exe and the runtime's wrappers name the
+// .exe later in their arguments. Windows compares the name without case.
+static bool windowsProgramMatches(const std::filesystem::path& procDir, std::string_view target) {
+    auto lower = [](std::string_view text) {
+        std::string out(text);
+        for (char& c : out) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return out;
+    };
+    const std::string wanted = lower(target);
+    if (wanted.size() <= 4 || !wanted.ends_with(".exe")) return false;
+    std::ifstream cmdline(procDir / "cmdline", std::ios::binary);
+    std::string argv0;
+    if (!cmdline || !std::getline(cmdline, argv0, '\0')) return false;
+    const size_t slash = argv0.find_last_of("/\\");
+    return lower(slash == std::string::npos ? argv0 : argv0.substr(slash + 1)) == wanted;
+}
+
 static bool processNameMatches(const std::filesystem::path& procDir, std::string_view target) {
     if (readProcessName(procDir) == target)
         return true;
 
     std::error_code ec;
     auto exe = std::filesystem::read_symlink(procDir / "exe", ec);
-    return !ec && exe.filename().string() == target;
+    return (!ec && exe.filename().string() == target) || windowsProgramMatches(procDir, target);
 }
 
 pid_t findProcessIdByName(std::string_view target) {

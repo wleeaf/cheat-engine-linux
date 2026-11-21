@@ -17,6 +17,22 @@ reimplementation of Cheat Engine).
 
 ### Fixes
 
+- Tables whose records carry attributes on their tag (`<CheatEntry
+  NoCheckbox="1">`, `<CheatEntry NoScriptTag="1">`) load completely again
+  ([#15](https://github.com/wleeaf/cheat-engine-linux/issues/15)). Such a
+  record was skipped and its children moved to the top level: the Dave the
+  Diver table from that issue lost its "Initialize Mono" script with all 18
+  hooks under it and loaded 550 of its 1040 records. The attributes are now
+  kept and written back on save.
+- Lua in tables written for Cheat Engine runs further:
+  - every function answers to both cases of its first letter, as in Cheat
+    Engine (`OpenProcess`, `ShellExecute`);
+  - `getProcessIDFromProcessName` and `openProcess` find a Windows game under
+    Wine or Proton by its `.exe` name;
+  - `mono_initialize()` and `LaunchMonoDataCollector()` are accepted, so an
+    "Initialize Mono" script enables (Mono and IL2CPP support is built in, so
+    they inject nothing);
+  - `beep()` exists.
 - Memory that Wine commits for a hook (see v1.2.0 and
   [#9](https://github.com/wleeaf/cheat-engine-linux/issues/9)) now also works
   for a game inside a Proton (Steam Runtime) or Flatpak container. The small

@@ -539,8 +539,8 @@ bool AddressListModel::fromJson(const QJsonArray& arr, bool preserveExisting) {
         e.decreaseHotkeyKeys = obj["decreaseHotkey"].toString();
         e.hotkeyStep = obj["hotkeyStep"].toString("1");
         e.luaScript = obj["lua"].toString();
-        for (const char* key : {"customType", "async", "dropdownAttributes", "unparsedAddress", "unparsedOffsets",
-                                "extraHotkeys", "extraXml"})
+        for (const char* key : {"customType", "async", "dropdownAttributes", "entryAttributes", "unparsedAddress",
+                                "unparsedOffsets", "extraHotkeys", "extraXml"})
             if (obj.contains(key)) e.tableFields[key] = obj[key];
         e.indent = std::max(0, obj.contains("indent")
             ? obj["indent"].toInt()

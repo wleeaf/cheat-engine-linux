@@ -226,6 +226,7 @@ int main(int argc, char* argv[]) {
     test_pointer_scan_shard_through_static();
     test_pointer_scan_persistence();
     test_ct_table_luascript_after_entries();
+    test_ct_entry_tag_attributes();
     test_ct_json_pointer_roundtrip();
     test_il2cpp_pe_header_bounds();
     test_dwarf_symbols();

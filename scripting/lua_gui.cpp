@@ -6,6 +6,7 @@
 
 #include "scripting/lua_gui.hpp"
 #include "scripting/lua_safe.hpp"
+#include "scripting/lua_engine.hpp"
 #include "gui/canvaswidget.hpp"
 
 extern "C" {
@@ -955,6 +956,8 @@ void registerLuaGuiBindings(lua_State* L) {
     lua_register(L, "addMainMenuItem", l_addMainMenuItem);
     lua_register(L, "getProperty", l_getProperty);
     lua_register(L, "setProperty", l_setProperty);
+    lua_register(L, "beep", [](lua_State*) -> int { QApplication::beep(); return 0; });
+    ce::addCheatEngineCaseAliases(L);
 }
 
 void setLuaMainForm(QMainWindow* w) {

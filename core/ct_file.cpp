@@ -930,7 +930,10 @@ bool writeTableXml(const CheatTable& table,std::ostream& f) {
     std::function<void(int, int)> writeEntry = [&](int i, int depth) {
         if (done[i]) return;
         done[i] = 1;
-        f << "    <CheatEntry>\n";
+        f << "    <CheatEntry";
+        if (!entries[i].entryAttributes.empty() && isAttributeText(entries[i].entryAttributes))
+            f << " " << entries[i].entryAttributes;
+        f << ">\n";
         writeEntryFields(entries[i]);
         if (!children[i].empty() && depth + 1 < kMaxEntryDepth) {
             f << "      <CheatEntries>\n";
@@ -1127,19 +1130,36 @@ static std::string unknownRecordElements(const std::string& own) {
 // for nested <tag> pairs. npos if unbalanced. Needed because Cheat Engine nests a
 // group's children inside its own <CheatEntries>, so a naive find of the first
 // close tag matches a child's close instead of the parent's.
+// Position of the next start tag of `tag` at or after `from`: "<tag>" or one
+// with attributes ("<CheatEntry NoCheckbox=\"1\">", as Cheat Engine writes a
+// record without a check box). Not a longer name ("<CheatEntries>") and not a
+// self-closing "<tag .../>", which has no close tag to match.
+static size_t findStartTag(const std::string& xml, const std::string& tag, size_t from) {
+    const std::string open = "<" + tag;
+    for (size_t p = xml.find(open, from); p != std::string::npos; p = xml.find(open, p + 1)) {
+        const size_t after = p + open.size();
+        if (after >= xml.size()) break;
+        if (xml[after] == '>') return p;
+        if (xml[after] != ' ' && xml[after] != '\t' && xml[after] != '\r' && xml[after] != '\n') continue;
+        const size_t end = xml.find('>', after);
+        if (end == std::string::npos) break;
+        if (xml[end - 1] != '/') return p;
+    }
+    return std::string::npos;
+}
+
 static size_t findMatchingClose(const std::string& xml, size_t openPos, const std::string& tag) {
-    std::string open = "<" + tag + ">";
     std::string close = "</" + tag + ">";
     // Keep the next opening and closing tag and advance only the one taken:
     // searching both again on every step rescanned the text up to the next
     // close each time, which made a deeply nested table quadratic to load.
-    size_t nextOpen = xml.find(open, openPos + open.size());
-    size_t nextClose = xml.find(close, openPos + open.size());
+    size_t nextOpen = findStartTag(xml, tag, openPos + 1);
+    size_t nextClose = xml.find(close, openPos + 1);
     int depth = 1;
     while (nextClose != std::string::npos) {
         if (nextOpen != std::string::npos && nextOpen < nextClose) {
             ++depth;
-            nextOpen = xml.find(open, nextOpen + open.size());
+            nextOpen = findStartTag(xml, tag, nextOpen + 1);
         } else {
             if (--depth == 0) return nextClose;
             nextClose = xml.find(close, nextClose + close.size());
@@ -1172,7 +1192,7 @@ static void parseCheatEntriesBlock(const std::string& xml, size_t begin, size_t 
     if (depth >= kMaxEntryDepth) { validFormat = false; return; }
     size_t pos = begin;
     while (true) {
-        auto entryStart = xml.find("<CheatEntry>", pos);
+        auto entryStart = findStartTag(xml, "CheatEntry", pos);
         if (entryStart == std::string::npos || entryStart >= end) break;
         auto entryClose = findMatchingClose(xml, entryStart, "CheatEntry");
         if (entryClose == std::string::npos || entryClose + CE_CLOSE.size() > end) break;
@@ -1205,6 +1225,13 @@ static void parseCheatEntriesBlock(const std::string& xml, size_t begin, size_t 
 
         CheatEntry e;
         e.parentId = parentId;
+        // CE marks some records on the tag itself (NoCheckbox="1" for a label,
+        // NoScriptTag="1"); kept so a save writes them back.
+        if (const size_t tagEnd = xml.find('>', entryStart); tagEnd != std::string::npos && tagEnd < entryClose) {
+            const size_t first = entryStart + std::string("<CheatEntry").size();
+            std::string attributes = trimmedXmlText(xml.substr(first, tagEnd - first));
+            if (isAttributeText(attributes)) e.entryAttributes = std::move(attributes);
+        }
         auto idStr = getTag(ownXml, "ID");
         int parsedId = 0;
         const auto [idStop, idError] = std::from_chars(idStr.data(), idStr.data() + idStr.size(), parsedId);
@@ -1950,6 +1977,7 @@ bool writeTableJson(const CheatTable& table,std::ostream& f) {
         }
         if (e.asyncScript) f << ",\"async\":true";
         if (!e.dropdownAttributes.empty()) f << ",\"dropdownAttributes\":\"" << jsonEscape(e.dropdownAttributes) << "\"";
+        if (!e.entryAttributes.empty()) f << ",\"entryAttributes\":\"" << jsonEscape(e.entryAttributes) << "\"";
         if (!e.extraHotkeysXml.empty()) f << ",\"extraHotkeys\":\"" << jsonEscape(e.extraHotkeysXml) << "\"";
         if (!e.extraXml.empty()) f << ",\"extraXml\":\"" << jsonEscape(e.extraXml) << "\"";
         if (e.active) f << ",\"active\":true";
@@ -2105,6 +2133,7 @@ static bool readTableJson(const JsonValue& root,CheatTable& table) {
         e.extraHotkeysXml = jsonStringField(item, "extraHotkeys");
         e.extraXml = jsonStringField(item, "extraXml");
         e.dropdownAttributes = jsonStringField(item, "dropdownAttributes");
+        e.entryAttributes = jsonStringField(item, "entryAttributes");
         e.color = jsonStringField(item, "color");
         e.dropdownList = jsonStringField(item, "dropdown");
         e.hotkeyKeys = jsonStringField(item, "hotkeys");

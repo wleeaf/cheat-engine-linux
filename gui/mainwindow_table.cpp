@@ -172,6 +172,7 @@ ce::CheatTable MainWindow::buildCheatTable() const {
         e.customTypeName = obj["customType"].toString().toStdString();
         e.asyncScript = obj["async"].toBool();
         e.dropdownAttributes = obj["dropdownAttributes"].toString().toStdString();
+        e.entryAttributes = obj["entryAttributes"].toString().toStdString();
         e.unparsedAddress = obj["unparsedAddress"].toString().toStdString();
         for (const auto& text : obj["unparsedOffsets"].toArray())
             e.unparsedOffsets.push_back(text.toString().toStdString());
@@ -349,6 +350,7 @@ QJsonArray cheatEntriesToJson(const ce::CheatTable& table) {
         if (!e.customTypeName.empty()) obj["customType"] = QString::fromStdString(e.customTypeName);
         if (e.asyncScript) obj["async"] = true;
         if (!e.dropdownAttributes.empty()) obj["dropdownAttributes"] = QString::fromStdString(e.dropdownAttributes);
+        if (!e.entryAttributes.empty()) obj["entryAttributes"] = QString::fromStdString(e.entryAttributes);
         if (!e.unparsedOffsets.empty()) {
             QJsonArray texts;
             for (const auto& text : e.unparsedOffsets) texts.append(QString::fromStdString(text));

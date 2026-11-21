@@ -71,6 +71,9 @@ std::string findCompanionLibrary(const char* name);
 /// rather than injecting an agent that finds no mono_* symbols.
 enum class ManagedKind { None, Mono, Il2Cpp };
 ManagedKind detectManagedKind(ProcessHandle& proc);
+/// The module detectManagedKind decided by: the Mono runtime library, else the
+/// IL2CPP binary (GameAssembly). None for a target without either.
+std::optional<ModuleInfo> managedRuntimeModule(ProcessHandle& proc);
 
 /// Inject the agent .so into `proc`, wait up to timeoutMs for its dump to
 /// complete, and parse it. `agentSoPath` is the path to libcecore_mono_agent.so.

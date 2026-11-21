@@ -15,6 +15,25 @@ local layout = getIl2CppClassLayout("Player")
 if not layout then print("no IL2CPP here"); return end
 ```
 
+### Tables written for Cheat Engine
+
+As in Cheat Engine, every function also answers to its name with the other
+case of the first letter: `OpenProcess` is `openProcess`, `ShellExecute` is
+`shellExecute`. Lua's own functions (`print`, `pairs`) keep their one name.
+
+`getProcessIDFromProcessName("Game.exe")` and `openProcess("Game.exe")` find a
+Windows program under Wine or Proton by its `.exe` name, ignoring case, as
+Windows does. Wine runs it as `wine64-preloader`, with the program's Windows
+path in its first argument.
+
+Cheat Engine's `mono_initialize()` and `LaunchMonoDataCollector()` are accepted,
+so a table's "Initialize Mono" script runs. Mono and IL2CPP support is built in,
+and nothing is injected: `mono_initialize()` does nothing, and
+`LaunchMonoDataCollector()` returns the base address of the target's Mono or
+IL2CPP runtime module, or 0 when the target has neither. The collector's
+`mono_*` query functions are not provided. Use `monoDissect` and the
+`getIl2Cpp*` functions below instead.
+
 ---
 
 ## Typed memory access
